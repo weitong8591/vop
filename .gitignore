@@ -1,0 +1,14 @@
+.venv
+/build/
+*.egg-info
+*.pyc
+/.idea/
+/venv/
+/data/
+/outputs/
+/outputs_local/
+__pycache__
+/logs/
+/configs/
+dumped_data/
+dump_datasets/data_dirs.yaml

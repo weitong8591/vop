@@ -1,0 +1,64 @@
+data:
+  name: megadepth
+  preprocessing:
+    resize: 224
+    side: long
+    square_pad: true
+  data_dir: "/mnt/personal/weitong/olap_predictor_mlp_large/data/megadepth/"
+  info_dir: "/mnt/personal/weitong/olap_predictor_mlp_large/data/megadepth/scene_info/" 
+  train_split: train_scenes_clean.txt
+  val_split: valid_scenes_clean.txt
+  train_num_per_scene: [200, 200]
+  val_num_per_scene: [150, 150]
+  num_overlap_bins: 3
+  min_overlap: 0.1
+  max_overlap: 0.7
+  batch_size: 32
+  num_workers: 8
+  one_to_one: true
+  aug: true
+  photometric: {
+            "name": "flip",
+           "p": 0.95,
+            # 'difficulty': 1.0,  # currently unused
+       }
+
+model:
+  name: two_view_pipeline
+  extractor:
+    name: extractors.mixed
+    detector:
+      name: extractors.grid_extractor
+      cell_size: 14
+    descriptor:
+      name: backbones.dinov2
+      trainable: false
+      weights: dinov2_vitl14
+    trainable: false
+  ground_truth:
+    name: null
+  matcher:
+    name: overlap_predictor
+    add_voting_head: true
+    add_cls_tokens: false
+    attentions: false
+    input_dim: 1024
+train:
+  dropout_prob: 0.5
+  seed: 0
+  epochs: 30
+  log_every_iter: 500
+  eval_every_iter: 500
+  optimizer: adamw
+  lr: 0.0001
+  lr_schedule:
+    start: 10
+    type: exp
+    on_epoch: true
+    exp_div_10: 10
+  median_metrics:
+  - match_recall
+  submodules: []
+  plot:
+  # - 10
+  # - gluefactory.visualization.visualize_batch.make_overlap_figures
