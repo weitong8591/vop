@@ -24,31 +24,27 @@ opt.dataset_dir = Path(dataset_dirs.get('dataset_dirs')[opt.dataset])
 overlap_features = Path(opt.dump_dir) / opt.dataset / "overlap_feats.h5"
 assert os.path.exists(overlap_features)
 
-scenes = ['0015','0022'] if opt.dataset == 'megadepth' else os.listdir(opt.dataset_dir)
+scenes = ['Undistorted_SfM/0015/images/','Undistorted_SfM/0022/images/'] if opt.dataset == 'megadepth' else os.listdir(opt.dataset_dir)
 
 # use the trained model to encode the input embeddings
 model = gluefactory.load_experiment(opt.model).to(opt.device).eval()
 
 for scene in scenes:
+    print("start testing on scene:", scene)
 
     with h5py.File(str(overlap_features), 'r') as hfile:
-        image_list = hfile[scene]['indices']
-    # scene_file = opt.dataset_dir / 'scene_info' / (scene+'.npz')
+        image_list = [scene + f for f in hfile[scene].keys()]
+
+    N = len(image_list)
     output_dir = Path('outputs') / opt.dataset / scene / opt.model
     output_dir.mkdir(exist_ok=True, parents=True)
-
-    print("start testing on scene:", scene)
-    # scene_info = np.load(scene_file, allow_pickle=True)
-    # list(scene_info.keys())
-    # image_list = [image for image in scene_info['image_paths'] if image is not None]
-    N = len(image_list)
 
     if opt.cls:
         output_dir = output_dir / Path('cls_' + str(opt.pre_filter))
         output_dir.mkdir(exist_ok=True)
 
     # load the dumped data, prepare for tests
-    dataset = SampleDataset(overlap_features, image_list)
+    dataset = SampleDataset(overlap_features, image_list, opt.dataset)
     data_loader = DataLoader(dataset, batch_size=opt.batch_size, shuffle=False, num_workers=opt.num_workers)
 
     all_des = []
@@ -77,6 +73,7 @@ for scene in scenes:
 
     # Step 2: patch-level retrieval: radius search + votings
     mask = np.load(output_dir / Path("results_cls.npz"))['scores']
+    import pdb; pdb.set_trace()
     filtered_indices = torch.topk(torch.from_numpy(mask), opt.pre_filter).indices
 
     for radius in [opt.radius]:
@@ -100,7 +97,7 @@ for scene in scenes:
                     pairs_i = image_list[j]
                     doc.write(f"{name} {pairs_i}\n")
 
-    gt_score = np.load(str(output_dir).replace(opt.model, '').replace(f"cls_{opt.pre_filter}", '') + 'overlap_gt.npz')["scores_gt"] if scene != '0022' and str(output_dir).split("/")[-1] != '02' else np.load(f'outputs/{scene}/overlap_gt.npz')['scores_gt']
-    gt_topk = torch.topk(torch.from_numpy(gt_score), opt.k)
-    with open(recall_results, "a") as doc:
-            doc.write(f"{scene} {opt.model} {opt.radius} {opt.vote} recall@{opt.k} {recall(voting_topk, gt_topk)} \n")
+    # gt_score = np.load(str(output_dir).replace(opt.model, '').replace(f"cls_{opt.pre_filter}", '') + 'overlap_gt.npz')["scores_gt"] if scene != '0022' and str(output_dir).split("/")[-1] != '02' else np.load(f'outputs/{scene}/overlap_gt.npz')['scores_gt']
+    # gt_topk = torch.topk(torch.from_numpy(gt_score), opt.k)
+    # with open(recall_results, "a") as doc:
+    #         doc.write(f"{scene} {opt.model} {opt.radius} {opt.vote} recall@{opt.k} {recall(voting_topk, gt_topk)} \n")

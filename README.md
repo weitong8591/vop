@@ -45,6 +45,10 @@ dataset_dirs:
 python dump_data.py -ds inloc
 python retrieve.py -ds inloc -k 40 -m 09 -v 3 -r 0.3 -pre 100 -cls 1
 ```
+47.5 / 72.2 / 82.3	60.3 / 77.1 / 85.5	May 10, 2024, 9:44 a.m.
+
+49.5 / 69.7 / 82.8	60.3 / 77.9 / 84.7	June 5, 2024, 4:58 p.m.
+
 3. install and run [hloc](https://github.com/cvg/Hierarchical-Localization.git) to localize the query images.
 ```
 python inloc_localization.py --loc_pairs outputs/inloc/09/cls_100/top40_overlap_pairs_w_auc.txt -m 09 -ds inloc
@@ -114,7 +118,7 @@ python relative_pose.py -k 5 -m 09 -v 4 -r 0.2 -pre 20 -cls 1 -ds eth3d
 python -m gluefactory.train 09 --conf train_configs/09.yaml
 ```
 
-Here the training is based on glue-factory, we provide details of the configurations we focus on.
+Here the training is based on [glue-factory](https://github.com/cvg/glue-factory.git), we provide details of the configurations we focus on.
 ```
 data:
     # choose the data augmentation type: 'flip, dark, lighglue'
@@ -148,11 +152,17 @@ train:
 --vote, vote methods.
 --k', top-k retrievals.
 --overwrite', for data redump.
+--num_workers, default=8, change it to fit your machine.
 ```
 </details>
 
 <details>
 <summary>[Acknowledgement]</summary>
+
+[glue-factory](https://github.com/cvg/glue-factory.git)
+[long-term visual localization benchmark](https://www.visuallocalization.net/)
+[pre-commit](https://pre-commit.com/)
+
 </details>
 
 <details>

@@ -74,7 +74,5 @@ def dump(opt):
                     group.create_dataset("T_w2cam", data=T_world_to_camera[image_path])
                     group.create_dataset('image_size', data=[w, h])
 
-                # save the indices of images
-                group.create_dataset("indices", data=image_list, dtype=h5py.string_dtype(encoding='utf-8'))
                 print(f"{len(image_list)} images in {scene}")
             print(f"finished." )

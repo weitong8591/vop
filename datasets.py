@@ -20,13 +20,12 @@ class SampleDataset(Dataset):
         self.overlap_features = data
         self.image_list = image_list
         self.dataset = dataset
-    
+
     def __len__(self):
         return len(self.image_list)
-    
+
     def __getitem__(self, idx):
-        """
-        Retrieve a sample from the dataset at the given index.
+        """Retrieve a sample from the dataset at the given index.
 
         Args:
             idx (int): Index of the sample to retrieve.
@@ -35,55 +34,22 @@ class SampleDataset(Dataset):
             sample (dict): A dictionary containing the input and target data for the sample.
         """
         data = defaultdict(list)
-        if self.dataset == 'megadepth':
-            split = str(self.image_list[idx]).split("/")
-            (folder, scene, _, file) = split
-            with h5py.File(str(self.overlap_features), 'r') as hfile:
-                    for k in hfile[folder][scene]['images'][file].keys():
-                        data[k] = [torch.Tensor(hfile[folder][scene]['images'][file][k].__array__())]
-                        
-        elif self.dataset == 'aachen':
-            name = str(self.image_list[idx]).split("'")[0].replace('/', '_') # eg, 'query/day/milestone/2010-10-30_17-47-25_73.jpg'
-            with h5py.File(str(self.overlap_features), 'r') as hfile:
-                for k in hfile[name].keys():
-                    data[k] = [torch.Tensor(hfile[name][k].__array__())]
-        else:
-            # import pdb; pdb.set_trace()
-            split = str(self.image_list[idx]).split("/")
-            # for inloc loader
-            if len(split)==3 or len(split)==4:
-                try:
-                    (_, folder, scene, file) = split
-                except:
-                    (folder, scene, file) = split
-                with h5py.File(str(self.overlap_features), 'r') as hfile:
-                    for k in hfile[folder][scene][file].keys():
-                        data[k] = [torch.Tensor(hfile[folder][scene][file][k].__array__())]
-            elif len(split)==5:
-                (folder, scene, scene1, scene2, file) = split
-                with h5py.File(str(self.overlap_features), 'r') as hfile:
-                    for k in hfile[folder][scene][scene1][scene2][file].keys():
-                        data[k] = [torch.Tensor(hfile[folder][scene][scene1][scene2][file][k].__array__())]
-            else:
-                (scene, file) = split
-                with h5py.File(str(self.overlap_features), 'r') as hfile:
-                    for k in hfile[scene][file].keys():
-                        data[k] = [torch.Tensor(hfile[scene][file][k].__array__())]#v[None]
 
-        input_data0 = {k+'0': torch.concat(data[k]) for k in data.keys()}      
-        input_data1 = {k+'1': torch.concat(data[k]) for k in data.keys()}   
-        return {**input_data0, **input_data1} 
+        with h5py.File(str(self.overlap_features), 'r') as hfile:
+            for k in hfile[self.image_list[idx]].keys():
+                data[k] = [torch.Tensor(hfile[self.image_list[idx]][k].__array__())]
+
+        input_data0 = {k+'0': torch.concat(data[k]) for k in data.keys()}
+        input_data1 = {k+'1': torch.concat(data[k]) for k in data.keys()}
+        return {**input_data0, **input_data1}
 
 class Dataset(data.Dataset):
-    """
-        load images and extrinsic matrices. 
-    
-    """
+    """Load images and extrinsic matrices."""
     def __init__(self, dataset_dir, dataset, query_list=None, data_base=None, device='cuda:0'):
 
         scenes = os.listdir(dataset_dir)
         image_list = []
-        for scene in scenes: 
+        for scene in scenes:
             image_list += [scene + '/' + image for image in os.listdir(dataset_dir / scene / "images/dslr_images_undistorted")]
         if len(image_list) % 2 != 0: image_list += [image_list[-1]]
         # load all features
@@ -104,11 +70,11 @@ class Dataset(data.Dataset):
         return len(self.files)//2
 
     def __getitem__(self, index):
-        # 
+        #
         import pdb; pdb.set_trace()
-        input_data0 = {self.query_list[index] + '0': torch.concat(self.data[self.query_list[index]])}      
-        input_data1 = {self.data_base[index] + '1': torch.concat(self.data[self.data_base[index]])}            
-        data = {**input_data0, **input_data1}  
+        input_data0 = {self.query_list[index] + '0': torch.concat(self.data[self.query_list[index]])}
+        input_data1 = {self.data_base[index] + '1': torch.concat(self.data[self.data_base[index]])}
+        data = {**input_data0, **input_data1}
 
 
         return data
