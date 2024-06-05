@@ -22,7 +22,6 @@ def dump(opt):
     modelconf = {}
     model = gluefactory.load_experiment(opt.model, conf=modelconf).cuda().eval()
 
-    all_images = []
     if not os.path.exists(overlap_features) or opt.overwrite:
         with h5py.File(str(overlap_features), 'w') as hfile:
             for scene in scenes:
@@ -53,9 +52,7 @@ def dump(opt):
                     # Extract the visible 3D points
                     point3D_ids = [id for id in map(int, raw_pts[2::3]) if id != -1]
                     image_visible_points3D[img_name] = set(point3D_ids)
-                
 
-                all_images += image_list
                 for image_path in tqdm(image_list):
                     image_ = load_image(Path(opt.dataset_dir) / scene / Path("images/dslr_images_undistorted") / image_path, resize=opt.imsize)
                     c, h, w = image_.shape
@@ -65,7 +62,7 @@ def dump(opt):
                     group = hfile.create_group(scene + '/' + image_path)
                     for key in ['keypoints', 'descriptors', 'global_descriptor']:
                         group.create_dataset(key, data=feats[key][0].detach().cpu().numpy())
-                    
+
                     ori_h, ori_w = load_image(Path(opt.dataset_dir) / scene / Path("images/dslr_images_undistorted") / image_path).shape[-2:]
                     original_image_size = np.array([ori_w, ori_h])
                     scales = opt.imsize/original_image_size
@@ -77,8 +74,7 @@ def dump(opt):
                     group.create_dataset("T_w2cam", data=T_world_to_camera[image_path])
                     group.create_dataset('image_size', data=[w, h])
 
-            # save the indices of images
-            group = hfile.create_group("indices")
-            group.create_dataset("images", data=all_images, dtype=h5py.string_dtype(encoding='utf-8'))
-            print(f"in total {len(image_list)} images")
+                # save the indices of images
+                group.create_dataset("indices", data=image_list, dtype=h5py.string_dtype(encoding='utf-8'))
+                print(f"{len(image_list)} images in {scene}")
             print(f"finished." )

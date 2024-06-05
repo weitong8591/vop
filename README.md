@@ -3,7 +3,7 @@
 [arxiv]()
 
 # Summary
-The proposed method enables the identification of visible image sections without requiring expensive feature detection and matching. 
+The proposed method enables the identification of visible image sections without requiring expensive feature detection and matching.
     By focusing on obtaining patch-level embeddings by Vision Transformer backbone and establishing patch-to-patch correspondences, our approach uses a voting mechanism to assess overlap scores for potential database images, thereby providing a nuanced image retrieval metric in challenging scenarios.
 
 <p align="center">
@@ -23,13 +23,13 @@ faiss == 1.8.0
 ```
 # Evaluation
 
-Step 1. dump the iamge pairs, save the GT information (e.g., R, K), pretrained Dino V2 [CLS] tokens and patch embeddings (e.g., large in 1024 dim). 
+Step 1. dump the image pairs, save the GT information (e.g., R, K), pretrained Dino V2 [CLS] tokens and patch embeddings (e.g., large in 1024 dim).
 
-Step 2. load the trained encoders to build our own embeddings, eg, in 256-dim, run the retrieval process (CLS tokens for prefiltering, and VOP for reranking.) and save the retreived image pair list.
+Step 2. load the trained encoders to build our own embeddings, eg, in 256-dim, run the retrieval process (CLS tokens for prefiltering, and VOP for reranking.) and save the retrieved image pair list.
 
-Step 3. verify the retreived image pairs by sending them for [relative pose estimation](relative_pose.py) or [hloc](https://github.com/cvg/Hierarchical-Localization.git) for [localization](inloc_localization.py).
+Step 3. verify the retrieved image pairs by sending them for [relative pose estimation](relative_pose.py) or [hloc](https://github.com/cvg/Hierarchical-Localization.git) for [localization](inloc_localization.py).
 
-Here are the instructions for testing each data used in our paper and how to test your own data. 
+Here are the instructions for testing each data used in our paper and how to test your own data.
 Note that before data dumping, create an original dirs for the specific dataset in [dump_datasets/data_dirs.yaml](dump_datasets/data_dirs.yaml).
 
 ```
@@ -42,14 +42,14 @@ dataset_dirs:
 1. download the [cutouts](https://data.ciirc.cvut.cz/public/projects/2020VisualLocalization/InLoc/cutouts.tar.gz) (db images) and format the data to database/cutouts/; download the [query images](https://data.ciirc.cvut.cz/public/projects/2020VisualLocalization/InLoc/queries/iphone7.tar.gz) into query/iphone7/.
 2. dump the data and perform image retrieval to get the most overlapping image list. (top-40 on InLoc)
 ```
-python dump_data.py -ds inloc 
+python dump_data.py -ds inloc
 python retrieve.py -ds inloc -k 40 -m 09 -v 3 -r 0.3 -pre 100 -cls 1
 ```
 3. install and run [hloc](https://github.com/cvg/Hierarchical-Localization.git) to localize the query images.
 ```
 python inloc_localization.py --loc_pairs outputs/inloc/09/cls_100/top40_overlap_pairs_w_auc.txt -m 09 -ds inloc
 ```
-4. submit the result poses to the [long-term visual localization benchmark](https://www.visuallocalization.net/). 
+4. submit the result poses to the [long-term visual localization benchmark](https://www.visuallocalization.net/).
 
 
 </details>
@@ -61,7 +61,7 @@ python inloc_localization.py --loc_pairs outputs/inloc/09/cls_100/top40_overlap_
 
 2. dump the data and perform image retrieval to get the most overlapping image list.
 ```
-python dump_data.py -ds megadepth 
+python dump_data.py -ds megadepth
 python register.py -k 5 -m 09 -v 4 -r 0.2 -pre 20 -cls 1 -ds megadepth
 ```
 
@@ -79,7 +79,7 @@ python relative_pose.py -k 5 -m 09 -v 4 -r 0.2 -pre 20 -cls 1 -ds megadepth
 2. dump the data and perform image retrieval to get the most overlapping image list.
 
 ```
-python dump_data.py -ds eth3d 
+python dump_data.py -ds eth3d
 python register.py -k 5 -m 09 -v 3 -r 0.3 -pre 20 -cls 1 -ds eth3d
 ```
 
@@ -94,11 +94,11 @@ python relative_pose.py -k 5 -m 09 -v 4 -r 0.2 -pre 20 -cls 1 -ds eth3d
 <details>
 <summary>[Your own data]</summary>
 
-1. specify the data dir of your data in [data_dirs.yaml](dump_datasets/data_dirs.yaml), and put the dump script into [here](vop/dump_datasets) to load the images, scene infomation (K, pose, etc.), and query and data base image lists if needed. 
+1. specify the data dir of your data in [data_dirs.yaml](dump_datasets/data_dirs.yaml), and put the dump script into [here](dump_datasets) to load the images, scene information (K, pose, etc.), and query and data base image lists if needed.
 
-2. run [retrieve.py](retrieve.py) to retrieve the queries if there are query and db images split; while [register.py](register.py) is the case we retrieve each image in the pool from the rest. 
+2. run [retrieve.py](retrieve.py) to retrieve the queries if there are query and db images split; while [register.py](register.py) is the case we retrieve each image in the pool from the rest.
 
-3. run [relative_pose.py](relative_pose.py) for relative pose estimation; or [inloc_localization.py](inloc_localization.py) to localize the queries by the retrieved db images. 
+3. run [relative_pose.py](relative_pose.py) for relative pose estimation; or [inloc_localization.py](inloc_localization.py) to localize the queries by the retrieved db images.
 
 </details>
 
@@ -114,7 +114,7 @@ python relative_pose.py -k 5 -m 09 -v 4 -r 0.2 -pre 20 -cls 1 -ds eth3d
 python -m gluefactory.train 09 --conf train_configs/09.yaml
 ```
 
-Here the training is based on glue-factory, we provide details of the configurations we focus on. 
+Here the training is based on glue-factory, we provide details of the configurations we focus on.
 ```
 data:
     # choose the data augmentation type: 'flip, dark, lighglue'
@@ -133,7 +133,7 @@ model:
         input_dim: 1024 # the dimension of the pretrained Dino features
 
 train:
-  dropout_prob: 0.5    # dropout probablity
+  dropout_prob: 0.5    # dropout probability
 
 ```
 # Notes
