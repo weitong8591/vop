@@ -24,24 +24,26 @@ opt.dataset_dir = Path(dataset_dirs.get('dataset_dirs')[opt.dataset])
 overlap_features = Path(opt.dump_dir) / opt.dataset / "overlap_feats.h5"
 assert os.path.exists(overlap_features)
 
-scenes = ['Undistorted_SfM/0015/images/','Undistorted_SfM/0022/images/'] if opt.dataset == 'megadepth' else os.listdir(opt.dataset_dir)
+scenes = ['Undistorted_SfM/0015/images','Undistorted_SfM/0022/images'] if opt.dataset == 'megadepth' else os.listdir(opt.dataset_dir)
 
 # use the trained model to encode the input embeddings
 model = gluefactory.load_experiment(opt.model).to(opt.device).eval()
 
 for scene in scenes:
     print("start testing on scene:", scene)
+    if opt.dataset == 'eth3d': scene = f"{scene}/images/dslr_images_undistorted"
 
     with h5py.File(str(overlap_features), 'r') as hfile:
-        image_list = [scene + f for f in hfile[scene].keys()]
+        image_list = [f"{scene}/{f}" for f in hfile[scene].keys()]
     N = len(image_list)
+    if N < opt.pre_filter: opt.pre_filter //=  2
 
     output_dir = Path('outputs') / opt.dataset / scene / opt.model
     output_dir.mkdir(exist_ok=True, parents=True)
 
     conf = extract_features.confs['superpoint_aachen']
     features = output_dir / 'features.h5'
-    if not os.path.exists(features):
+    if not os.path.exists(features) or opt.overwrite:
         extract_features.main(conf, opt.dataset_dir, feature_path=features, image_list=image_list)
     if opt.cls:
         output_dir = output_dir / Path('cls_' + str(opt.pre_filter))
@@ -53,7 +55,7 @@ for scene in scenes:
     overlap_results = output_dir  / Path("overlap_results_w_auc.txt") if opt.weighted else output_dir  / Path("overlap_results_auc.txt")
 
     if os.path.exists(overlap_pairs):
-        if not os.path.exists(matches):
+        if not os.path.exists(matches) or opt.overwrite:
             # local feature matching
             match_conf = match_features.confs['superpoint+lightglue']
             match_features.main(match_conf, overlap_pairs, features, matches=matches, overwrite=opt.overwrite, unique_pairs=False)

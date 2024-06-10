@@ -22,11 +22,11 @@ def dump(opt):
     with h5py.File(str(overlap_features), 'w') as hfile:
         query_list = [f"query/iphone7/" + q  for q in os.listdir(opt.dataset_dir + "/query/iphone7/") if q !='LICENSE.txt']
         db_list = []
-        for scene in ['DUC1', 'DUC2']:#os.listdir(opt.dataset_dir + "/database/cutouts/"):
+        for scene in ['DUC1', 'DUC2']:
             if scene != 'LICENSE.txt':
                 for folder in os.listdir(opt.dataset_dir + "/database/cutouts/" + scene):
                     db_list += [f"database/cutouts/{scene}/{folder}/{f}" for f in os.listdir(f"{opt.dataset_dir}/database/cutouts/{scene}/{folder}") if f.endswith(".jpg")]
-        image_list = np.concatenate((query_list, db_list))   
+        image_list = np.concatenate((query_list, db_list))
 
         # save the indices of query and db images
         group = hfile.create_group("indices")
@@ -49,4 +49,3 @@ def dump(opt):
             scales = opt.imsize/original_image_size
             group.create_dataset('image_size', data=[w, h])
         print(f"finished." )
-

@@ -54,12 +54,13 @@ def dump(opt):
                     image_visible_points3D[img_name] = set(point3D_ids)
 
                 for image_path in tqdm(image_list):
-                    image_ = load_image(Path(opt.dataset_dir) / scene / Path("images/dslr_images_undistorted") / image_path, resize=opt.imsize)
+                    img_file = scene / Path("images/dslr_images_undistorted") / image_path
+                    image_ = load_image(Path(opt.dataset_dir) / img_file, resize=opt.imsize)
                     c, h, w = image_.shape
                     image = torch.zeros((3, opt.imsize, opt.imsize), device=opt.device, dtype=opt.dtype)
                     image[:, :h, :w] = image_
                     feats = model.extractor({'image': image[None]})
-                    group = hfile.create_group(scene + '/' + image_path)
+                    group = hfile.create_group(str(img_file))
                     for key in ['keypoints', 'descriptors', 'global_descriptor']:
                         group.create_dataset(key, data=feats[key][0].detach().cpu().numpy())
 

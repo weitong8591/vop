@@ -19,7 +19,7 @@ opt = create_parser()
 opt.device = torch.device('cuda:0' if torch.cuda.is_available() and opt.device != 'cpu' else 'cpu')
 torch.set_grad_enabled(False)
 
-# load the data dirs for all 
+# load the data dirs for all
 dataset_dirs = OmegaConf.load('dump_datasets/data_dirs.yaml')
 
 # load the query and db lists in the dumped data
@@ -49,7 +49,7 @@ elif opt.dataset == 'inloc':
         db_list = [db.decode() for db in hfile['indices']['db'].__array__()]
     image_list = np.concatenate((query_list, db_list))
     num_query = len(query_list)
-    
+
 else:
     raise NameError("Not implemented")
 
@@ -64,7 +64,7 @@ all_des = []
 cls_tokens = []
 for d in tqdm(data_loader):
     batch_data_cuda = {k: v.cuda() for k, v in d.items()}
-    pred = model.matcher({**batch_data_cuda}) 
+    pred = model.matcher({**batch_data_cuda})
     if model.conf.matcher['add_cls_tokens']:
         des0 = pred['desc0'][:, 1:, :]
         cls_tokens0 = pred['desc0'][:, 0, :]
@@ -81,12 +81,12 @@ output_dir = Path(opt.output_dir) / opt.dataset / opt.model
 
 output_dir.mkdir(exist_ok=True, parents=True)
 
-if opt.cls: 
+if opt.cls:
     output_dir = output_dir / Path('cls_' + str(opt.pre_filter))
 output_dir.mkdir(exist_ok=True)
 
-# Step 1 (optional): global retrieval 
-if not os.path.exists(output_dir / Path("results_cls.npz")):
+# Step 1 (optional): global retrieval
+if not os.path.exists(output_dir / Path("results_cls.npz")) or opt.overwrite:
     cls_scores = torch.einsum('id,jd->ij', cls_tokens, cls_tokens)
     diagonal = torch.eye(N, N).bool().to(cls_scores.device)
     cls_scores.masked_fill_(diagonal, -torch.inf)
@@ -94,7 +94,7 @@ if not os.path.exists(output_dir / Path("results_cls.npz")):
     np.savez(output_dir / Path("results_cls.npz"), **{'scores':cls_scores.cpu().numpy()})
 
 # Step 2: patch-level retrieval: radius search + votings
-mask = np.load(output_dir / Path("results_cls.npz"))['scores'][:num_query]  
+mask = np.load(output_dir / Path("results_cls.npz"))['scores'][:num_query]
 filtered_indices = torch.topk(torch.from_numpy(mask), opt.pre_filter).indices - num_query
 
 query_des = all_des[:num_query]
@@ -104,25 +104,25 @@ for radius in [opt.radius]:
     query_fun = Voting(opt.radius, num_patches=all_des.shape[1], weighted=opt.weighted)
     retrieved = query_fun.rerank(query_des, db_des, filtered_indices = filtered_indices)
     np.savez(output_dir / Path(str(radius) + "_results_w.npz"), **retrieved)
-    print(f"successfully test model {opt.model} on {opt.dataset} with radius of {radius}.")  
+    print(f"successfully test model {opt.model} on {opt.dataset} with radius of {radius}.")
 
-# Step 3: save the retrieved image list 
+# Step 3: save the retrieved image list
 overlap_pairs = output_dir / Path('top' + str(opt.k) +'_overlap_pairs_w_auc.txt') if opt.weighted else output_dir / Path('top' + str(opt.k) +'_overlap_pairs_auc.txt')
-if not os.path.exists(overlap_pairs):
+if not os.path.exists(overlap_pairs) or opt.overwrite:
     scores = np.load(output_dir / Path(str(opt.radius) + '_results_w.npz'))['votings'] if opt.weighted else np.load(output_dir / Path(str(radius) + '_results.npz'))['votings']
     assert scores.shape[0] > opt.radius
     voting_topk = torch.topk(torch.from_numpy(scores[opt.vote][:num_query]), opt.k)
 
     with open(overlap_pairs, "w") as doc:
-        if opt.dataset == 'aachen':     
+        if opt.dataset == 'aachen':
             for i, name in enumerate(day_query_list):
                 for j in voting_topk.indices[i]:
                     pairs_i = db_list[j]
-                    try: 
+                    try:
                         name = str(name).split("'")[1]
                     except:
                         name=name
-                    try: 
+                    try:
                        pairs_i = str(pairs_i).split("'")[1]
                     except:
                         pairs_i = pairs_i
@@ -130,7 +130,7 @@ if not os.path.exists(overlap_pairs):
             for i, name in enumerate(night_query_list):
                 for j in voting_topk.indices[i+len(day_query_list)]:
                     pairs_i = db_list[j]
-                    try: 
+                    try:
                         name = str(name).split("'")[1]
                     except:
                         name=name
@@ -143,7 +143,7 @@ if not os.path.exists(overlap_pairs):
             for i, name in enumerate(query_list):
                 for j in voting_topk.indices[i]:
                     pairs_i = db_list[j]
-                    try: 
+                    try:
                         name = str(name).split("'")[1]
                         pairs_i = str(pairs_i).split("'")[1]
                     except:
@@ -151,6 +151,4 @@ if not os.path.exists(overlap_pairs):
                         pairs_i = pairs_i
                     doc.write(f"{name} {pairs_i}\n")
 
-    print(f"successfully save the retrieved image list to {overlap_pairs}.")  
-
-
+    print(f"successfully save the retrieved image list to {overlap_pairs}.")

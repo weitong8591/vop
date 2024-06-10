@@ -29,7 +29,6 @@ def recall(topk, gt_topk):
 
 def read_cameras(camera_file, scale_factor=None):
     """Read the camera intrinsics from a file in COLMAP format."""
-    # import pdb; pdb.set_trace()
     with open(camera_file, "r") as f:
         raw_cameras = f.read().rstrip().split("\n")
     raw_cameras = raw_cameras[3:]
@@ -62,10 +61,10 @@ class BaselineHelper:
                     matches += [(matches0 > -1).sum()]
                 # avg. matched correspondences over different matched images
                 stats['num_matches'].append(num_matches / len(refs))
-        reduced_stats = {k: np.mean(v) for k, v in stats.items()}        
+        reduced_stats = {k: np.mean(v) for k, v in stats.items()}
 
         return reduced_stats, stats
-    
+
     def relative_pose_after_retrieval(self, match_file, pairs, features, overlap_features):
         retrieval = parse_retrieval(pairs)
         pose_results = defaultdict(lambda: defaultdict(list))
@@ -80,7 +79,7 @@ class BaselineHelper:
                     pair_name = names_to_pair(query, ref_name)
 
                     matches0 = hfile[pair_name]['matches0'].__array__()
-                   
+
                     matches1 = matches0[matches0 > -1]
                     coordinates1 = hfile1[ref_name]['keypoints'].__array__()
                     try:
@@ -99,7 +98,7 @@ class BaselineHelper:
                     data["T_w2cam0"] = Pose.from_4x4mat(data["T_w2cam0"])
                     data["camera1"] = Camera.from_calibration_matrix(data["original_K1"])#[None, :]).cuda()
                     data["T_w2cam1"] = Pose.from_4x4mat(data["T_w2cam1"])
-                     
+
                     if "T_w2cam0" in data.keys():
                         data["T_0to1"] = data["T_w2cam1"] @ data["T_w2cam0"].inv()
                         data["T_1to0"] = data["T_w2cam0"] @ data["T_w2cam1"].inv()
@@ -127,14 +126,13 @@ class BaselineHelper:
                              pose_results_i["ransac_inl"] = np.sum(inl)
                              pose_results_i["ransac_inl%"] = np.mean(inl)
                          [pose_results[th][k].append(v) for k, v in pose_results_i.items()]
-            
+
             best_pose_results, best_th = eval_poses_best(pose_results, auc_ths=[5, 10, 20], key="rel_pose_error", n = len(self.image_list))
 
         return best_pose_results, best_th
 
 class Voting:
-
-    """overlap retreival on db images, radius search + votings."""
+    """Overlap retrieval on db images, radius search + votings."""
 
     def __init__(self, radius, num_patches=256, weighted=True) -> None:
         self.radius = radius
@@ -144,18 +142,16 @@ class Voting:
         self.weighted = weighted
 
     def rerank(self, query_descriptors, db_descriptors, filtered_indices=None):
+        """Rerank each patch in the query image from the prefiltered db images by radius search and voting.
 
-        """
-            rerank each patch in the query image from the prefiltered db images by radius search and voting. 
-
-            Args: 
-                query_descriptors (num_images, num_patches. dim) 
-                filtered_indices: indices for the prefiltered db images, for reranking
+        Args:
+            query_descriptors (num_images, num_patches. dim)
+            filtered_indices: indices for the prefiltered db images, for reranking
         """
 
-        # the dimentions of the patch-level embeddings
+        # the dimensions of the patch-level embeddings
         dim = query_descriptors.shape[-1]
-        
+
         query_normalized = torch.nn.functional.normalize(query_descriptors, dim=-1)
         db_normalized = torch.nn.functional.normalize(db_descriptors, dim=-1)
 
@@ -169,12 +165,12 @@ class Voting:
 
         if self.weighted:
             # IF-TDF
-            # nd: how many patches in total in each image
-            nd = self.num_patches
+            # n_d: how many patches in total in each image
+            n_d = self.num_patches
             # N: num of images in the data base (filtered)
             N = filtered_indices.shape[-1]
-        
-        assign_time = 0 
+
+        assign_time = 0
         for i, query in tqdm(enumerate(query_normalized)):
             # Faiss CPU radius NN search
             index_flat_cpu = faiss.IndexFlatIP(dim)
@@ -191,23 +187,23 @@ class Voting:
                     D_cpu[lims[lims_i]: lims[lims_i+1]] = D_cpu[lims[lims_i]: lims[lims_i+1]][sorted_idx]
                     I_cpu[lims[lims_i]: lims[lims_i+1]] = I_cpu[lims[lims_i]: lims[lims_i+1]][sorted_idx]
             assignment, distance = [I_cpu[lims[idx]:lims[idx+1]] for idx in range(len(query))], [1-D_cpu[lims[idx]:lims[idx+1]] for idx in range(len(query))]
-            
+
 
             find_images_all = [a//self.num_patches for a in assignment]
-            find_images = np.hstack(find_images_all) 
+            find_images = np.hstack(find_images_all)
 
-            # if no neighbors found 
+            # if no neighbors found
             if len(find_images) == 0:
                 continue
             # num_matched_patches, within a given radius
             nid = np.array([len(a) for a in assignment])
 
-            # check the first occurance
-            unique_indices = np.unique(find_images, return_index=True)[1] # indices of the images 
+            # check the first occurrence
+            unique_indices = np.unique(find_images, return_index=True)[1] # indices of the images
             # ni: num of images that has at least on patch in the neighbor of query patch
             ni = np.array([len(np.unique(p_image)) for p_image in find_images_all])
             # tf-idf weights for each query patch
-            ti = nid/nd *np.log(N/(ni + self.EPS) )
+            ti = nid/n_d *np.log(N/(ni + self.EPS) )
             ti2 = (1/(nid + self.EPS))/(1/(nid + self.EPS)).max()
             ti[ti<0] = 0
             ti2[ti2<0] = 0
@@ -216,15 +212,15 @@ class Voting:
             weighted_similarity  = np.hstack([(1.-d) * ti[i] for i, d in enumerate(distance)])
             weighted_similarity2  = np.hstack([(1.-d)* ti2[i] for i, d in enumerate(distance)])
 
-            #votings: 
+            #votings:
                 # 0. vote once on the db image by the cloest patch, by 1
                 # 1. same as 1 but add similarity
                 # 2. vote on the db image by all neighbor patches by 1
                 # 3. same as 3 but add similarity
                 # 4. same as 4 but apply TI-IDF weights
-                # 5. 
-                
-            # as we sorted the assignment, the duplicate retreived neighbors will only be voted for once, by the closest
+                # 5.
+
+            # as we sorted the assignment, the duplicate retrieved neighbors will only be voted for once, by the closest
             votings[0, i, filtered_indices[i][find_images[unique_indices]]] = 1
             votings[1, i, filtered_indices[i][find_images[unique_indices]]] = similarity[unique_indices]
             votings[2, i] = np.bincount(filtered_indices[i][find_images], minlength=votings.shape[-1])
@@ -233,19 +229,17 @@ class Voting:
             votings[5, i] = np.bincount(filtered_indices[i][find_images], weights=weighted_similarity2, minlength=votings.shape[-1])
 
         return {
-                "votings": votings, 
+                "votings": votings,
                 "assign_time": assign_time/len(query_normalized)
                 }
 
     def query_each(self, descriptors, filtered_indices=None):
+        """Retrieve each image from the rest (as db images) in patch level by radius search and voting.
 
+        Args:
+            descriptors (num_images, num_patches. dim)
         """
-            retrieve each image from the rest (as db images) in patch level by radius search and voting. 
-
-            Args: 
-                descriptors (num_images, num_patches. dim) 
-        """
-        if filtered_indices is not None: 
+        if filtered_indices is not None:
             return self.rerank(descriptors, descriptors, filtered_indices)
         else:
             dim = descriptors.shape[-1]
@@ -264,10 +258,10 @@ class Voting:
 
             if self.weighted:
                 # IF-TDF
-                # nd: how many patches in total in each image
-                nd = self.num_patches
-            
-            assign_time = 0 
+                # n_d: how many patches in total in each image
+                n_d = self.num_patches
+
+            assign_time = 0
             for i, query in tqdm(enumerate(embeddings_normalized)):
                 # Faiss CPU radius NN search
                 index_flat_cpu = faiss.IndexFlatIP(dim)
@@ -286,31 +280,31 @@ class Voting:
                 assignment, distance = [I_cpu[lims[idx]:lims[idx+1]] for idx in range(len(query))], [1-D_cpu[lims[idx]:lims[idx+1]] for idx in range(len(query))]
 
                 find_images_all = [a[1:]//self.num_patches for a in assignment]
-                find_images = np.hstack(find_images_all) 
+                find_images = np.hstack(find_images_all)
 
-                # if no neighbors found 
+                # if no neighbors found
                 if len(find_images) == 0:
                     continue
 
-                # num_matched_patches 
+                # num_matched_patches
                 nid = np.array([len(a)-1 for a in assignment])
                 # no voting on this image i itself
                 mask = find_images != i
                 find_images = find_images[mask]
-                # check the first occurance
-                unique_indices = np.unique(find_images, return_index=True)[1] 
+                # check the first occurrence
+                unique_indices = np.unique(find_images, return_index=True)[1]
                 # ni: num of images that has at least one patch in the neighbor of query patch
                 ni = len(find_images[unique_indices])
                 # tf-idf weights for each query patch
-                ti = nid / nd *np.log(N / (ni + self.EPS))
+                ti = nid / n_d *np.log((N-1) / (ni+ self.EPS))
                 ti2 = (1 / (nid + self.EPS))/(1 / (nid + self.EPS)).max()
                 ti[ti<0] = 0
                 ti2[ti2<0] = 0
-                
+
                 similarity = np.hstack([1.-d[1:] for d in distance])[mask]
-                weighted_similarity  = np.hstack([(1.-d[1:]) * ti[i] for i, d in enumerate(distance)])[mask] 
-                weighted_similarity2  = np.hstack([(1.-d[1:])* ti2[i] for i, d in enumerate(distance)] )[mask] 
-                
+                weighted_similarity  = np.hstack([(1.-d[1:]) * ti[i] for i, d in enumerate(distance)])[mask]
+                weighted_similarity2  = np.hstack([(1.-d[1:])* ti2[i] for i, d in enumerate(distance)] )[mask]
+
                 votings[0, i, find_images[unique_indices]] = 1
                 votings[1, i, find_images[unique_indices]] = similarity[unique_indices]
                 votings[2, i] = np.bincount(find_images, minlength=votings.shape[-1])
@@ -319,6 +313,6 @@ class Voting:
                 votings[5, i] = np.bincount(find_images, weights=weighted_similarity2, minlength=votings.shape[-1])
 
             return {
-                "votings": votings, 
+                "votings": votings,
                 "assign_time": assign_time/len(descriptors)
                 }

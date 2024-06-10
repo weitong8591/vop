@@ -35,12 +35,11 @@ def dump(opt):
             'K'+suffix: torch.tensor(K).float(),
             'T_w2cam'+suffix: torch.tensor(scene_info['poses'][idx]).float()
         }
-    
+
     overlap_features = Path(opt.dump_dir)/ 'megadepth' / 'overlap_feats.h5'
     Path(opt.dump_dir).mkdir(exist_ok=True)
     (Path(opt.dump_dir) / 'megadepth').mkdir(exist_ok=True)
-    
-    import pdb; pdb.set_trace()
+
     if not os.path.exists(overlap_features) or opt.overwrite:
         with h5py.File(str(overlap_features), 'w') as hfile:
             for scene in ['0015','0022']:
@@ -61,4 +60,3 @@ def dump(opt):
                         group.create_dataset(key, data=v.numpy())
                     group.create_dataset('image_size', data=[w, h])
             print(f"finished." )
-

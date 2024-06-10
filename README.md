@@ -90,7 +90,7 @@ python register.py -k 5 -m 09 -v 3 -r 0.3 -pre 20 -cls 1 -ds eth3d
 3. run RANSAC on those pairs to estimate relative poses.
 
 ```
-python relative_pose.py -k 5 -m 09 -v 4 -r 0.2 -pre 20 -cls 1 -ds eth3d
+python relative_pose.py -k 5 -m 09 -v 3 -r 0.3 -pre 20 -cls 1 -ds eth3d
 ```
 </details>
 
@@ -147,11 +147,11 @@ train:
 ```
 --radius, radius for radius knn search
 --cls, default=0, whether to use CLS tokens as prefilter
---pre_filter', default=20, the number of db images prefiltered for reranking.
+--pre_filter, default=20, the number of db images prefiltered for reranking.
 --weighted, default=1, whether to use TF-IDF weights for voting scores.
 --vote, vote methods.
---k', top-k retrievals.
---overwrite', for data redump.
+--k, top-k retrievals.
+--overwrite, overwrite the dumped data, retrieved image list or relative pose, etc.
 --num_workers, default=8, change it to fit your machine.
 ```
 </details>
