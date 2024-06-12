@@ -12,7 +12,7 @@ repos:
       - id: check-yaml
       - id: requirements-txt-fixer
       - id: pretty-format-json
-        exclude: ^$|.devcontainer
+        exclude: ^(\.devcontainer/|demo\.ipynb)$
 
   # - repo: https://github.com/tox-dev/pyproject-fmt
   #   rev: "1.1.0"
@@ -26,7 +26,6 @@ repos:
   #       args: [--fix, --exit-non-zero-on-fix]
 
 
-
   - repo: https://github.com/codespell-project/codespell
     rev: v2.2.5
     hooks:
@@ -35,10 +34,13 @@ repos:
           - --ignore-words-list
           - "ans,hist,laf"
           - --skip
-          - "*.bib,*.ipynb"
+          #- "*.bib,*.ipynb"
+        exclude: ^.*\.ipynb$
+
 
   - repo: https://github.com/PyCQA/docformatter
     rev: v1.7.5
     hooks:
       - id: docformatter
         args: [--in-place, --wrap-summaries=115, --wrap-descriptions=120]
+        exclude: ^.*\.ipynb$

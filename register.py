@@ -54,6 +54,7 @@ for scene in scenes:
     cls_tokens = []
     for d in tqdm(data_loader):
         batch_data_cuda = {k: v.cuda() for k, v in d.items()}
+        import pdb; pdb.set_trace()
         pred = model.matcher({**batch_data_cuda})
         if model.conf.matcher['add_cls_tokens']:
             des0 = pred['desc0'][:, 1:, :]

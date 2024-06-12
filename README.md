@@ -21,6 +21,11 @@ h5py == 3.11.0
 tqdm == 4.66.2
 faiss == 1.8.0
 ```
+
+# [Demo](demo.ipynb)
+Here we visualize the patch matches on one example image pair found by the trained encoder, VOP. No preparation needed, the images and the model will be downloaded automatically, try [it](demo.ipynb)!
+Feel free to change the image paths to play with your own data.
+
 # Evaluation
 
 Step 1. dump the image pairs, save the GT information (e.g., R, K), pretrained Dino V2 [CLS] tokens and patch embeddings (e.g., large in 1024 dim).

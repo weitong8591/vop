@@ -5,19 +5,19 @@ import torch
 import h5py
 import numpy as np
 from tqdm import tqdm
-from pathlib import Path
-from hloc.utils.parsers import parse_retrieval, names_to_pair
-from collections import defaultdict
-from gluefactory.geometry.epipolar import relative_pose_error
-from gluefactory.robust_estimators import load_estimator
-from gluefactory.eval.utils import eval_poses, eval_poses_best
-from gluefactory.geometry.wrappers import Pose, Camera
-from hloc import pairs_from_retrieval, pairs_from_exhaustive, extract_features, match_features
-from sklearn.neighbors import NearestNeighbors
-from gluefactory.datasets.utils import scale_intrinsics
-from gluefactory.utils.image import ImagePreprocessor
-from gluefactory.utils.patch_helper import PatchCollect
 from torch.nn.functional import cosine_similarity
+try:
+    from hloc.utils.parsers import parse_retrieval, names_to_pair
+    from collections import defaultdict
+    from gluefactory.geometry.epipolar import relative_pose_error
+    from gluefactory.robust_estimators import load_estimator
+    from gluefactory.eval.utils import eval_poses, eval_poses_best
+    from gluefactory.geometry.wrappers import Pose, Camera
+    from gluefactory.datasets.utils import scale_intrinsics
+except Exception as e:
+    print(e)
+
+    pass
 
 def recall(topk, gt_topk):
         topk_recall = 0

@@ -198,7 +198,7 @@ def draw_connections_with_numbers(composite_image, matches, patch_height, patch_
 
     plt.axis('off')
     plt.show()
-    plt.savefig(f"demo_{patch_height}.pdf")
+    plt.savefig(f"demo/demo_{patch_height}.pdf")
 
 def draw_connections(composite_image, patch_height, patch_width, gap_size, gap_between_images, num_connections):
     """Draws lines connecting randomly selected patches across two processed images within a composite image."""

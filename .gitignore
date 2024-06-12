@@ -14,3 +14,4 @@ dumped_data/
 dump_datasets/data_dirs.yaml
 *.batch
 logs/
+demo/
