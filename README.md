@@ -35,7 +35,8 @@ Step 2. load the trained encoders to build our own embeddings, eg, in 256-dim, r
 Step 3. verify the retrieved image pairs by sending them for [relative pose estimation](relative_pose.py) or [hloc](https://github.com/cvg/Hierarchical-Localization.git) for [localization](inloc_localization.py).
 
 Here are the instructions for testing each data used in our paper and how to test your own data.
-Note that before data dumping, create an original dirs for the specific dataset in [dump_datasets/data_dirs.yaml](dump_datasets/data_dirs.yaml).
+
+:boom: important: before data dumping, create/update an original dirs for the specific dataset in [dump_datasets/data_dirs.yaml](dump_datasets/data_dirs.yaml).
 
 ```
 dataset_dirs:
@@ -50,9 +51,8 @@ dataset_dirs:
 python dump_data.py -ds inloc
 python retrieve.py -ds inloc -k 40 -m 09 -v 3 -r 0.3 -pre 100 -cls 1
 ```
-47.5 / 72.2 / 82.3	60.3 / 77.1 / 85.5	May 10, 2024, 9:44 a.m.
-
-49.5 / 69.7 / 82.8	60.3 / 77.9 / 84.7	June 5, 2024, 4:58 p.m.
+<!-- 47.5 / 72.2 / 82.3	60.3 / 77.1 / 85.5	May 10, 2024, 9:44 a.m.
+49.5 / 69.7 / 82.8	60.3 / 77.9 / 84.7	June 5, 2024, 4:58 p.m. -->
 
 3. install and run [hloc](https://github.com/cvg/Hierarchical-Localization.git) to localize the query images.
 ```
@@ -71,14 +71,19 @@ python inloc_localization.py --loc_pairs outputs/inloc/09/cls_100/top40_overlap_
 2. dump the data and perform image retrieval to get the most overlapping image list.
 ```
 python dump_data.py -ds megadepth
-python register.py -k 5 -m 09 -v 4 -r 0.2 -pre 20 -cls 1 -ds megadepth
+python register.py -k 5 -m 09 -v 4 -r 0.2 -pre 20 -cls -ds megadepth
 ```
-
+ <!-- python register.py -k 1 -m 09 -v 0 -r 0.01 -pre 20 -cls -ds megadepth -->
 3. run RANSAC on those pairs to estimate relative poses.
 ```
-python relative_pose.py -k 5 -m 09 -v 4 -r 0.2 -pre 20 -cls 1 -ds megadepth
+python relative_pose.py -k 5 -m 09 -v 4 -r 0.2 -pre 20 -cls -ds megadepth
 ```
 
+4. optional tests: recall@1, 5, 10.
+ ```
+python recall.py -k 5 -m 09 -v 4 -r 0.2 -pre 20 -cls -ds megadepth
+```
+Note: use  ```-v 4 -r 0.2 ``` for recall@10; ```-v 0 -r 0.01 ``` for recall@1.
 </details>
 
 <details>
@@ -89,13 +94,13 @@ python relative_pose.py -k 5 -m 09 -v 4 -r 0.2 -pre 20 -cls 1 -ds megadepth
 
 ```
 python dump_data.py -ds eth3d
-python register.py -k 5 -m 09 -v 3 -r 0.3 -pre 20 -cls 1 -ds eth3d
+python register.py -k 5 -m 09 -v 3 -r 0.3 -pre 20 -cls -ds eth3d
 ```
 
 3. run RANSAC on those pairs to estimate relative poses.
 
 ```
-python relative_pose.py -k 5 -m 09 -v 3 -r 0.3 -pre 20 -cls 1 -ds eth3d
+python relative_pose.py -k 5 -m 09 -v 3 -r 0.3 -pre 20 -cls -ds eth3d
 ```
 </details>
 
@@ -151,12 +156,12 @@ train:
 
 ```
 --radius, radius for radius knn search
---cls, default=0, whether to use CLS tokens as prefilter
+--cls, default=False, action True, whether to use CLS tokens as prefilter
 --pre_filter, default=20, the number of db images prefiltered for reranking.
---weighted, default=1, whether to use TF-IDF weights for voting scores.
+--weighted, default=True, action True, whether to use TF-IDF weights for voting scores.
 --vote, vote methods.
 --k, top-k retrievals.
---overwrite, overwrite the dumped data, retrieved image list or relative pose, etc.
+--overwrite, default=False, action True, overwrite the dumped data, retrieved image list or relative pose, etc.
 --num_workers, default=8, change it to fit your machine.
 ```
 </details>

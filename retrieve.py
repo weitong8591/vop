@@ -5,8 +5,6 @@ import numpy as np
 import gluefactory
 from tqdm import tqdm
 from pathlib import Path
-from hloc import extract_features
-from collections import defaultdict
 from evaluate_utils import *
 from args import *
 from omegaconf import OmegaConf
@@ -77,7 +75,7 @@ all_des = torch.concat(all_des)
 cls_tokens = torch.concat(cls_tokens)
 
 N = len(image_list)
-output_dir = Path(opt.output_dir) / opt.dataset / opt.model
+output_dir = Path(opt.output_dir) / opt.model / opt.dataset
 
 output_dir.mkdir(exist_ok=True, parents=True)
 
