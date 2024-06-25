@@ -1,6 +1,6 @@
 # Breaking the Frame: Image Retrieval by Visual Overlap Prediction
 
-[arxiv]()
+[arxiv](https://arxiv.org/abs/2406.16204)
 
 # Summary
 The proposed method enables the identification of visible image sections without requiring expensive feature detection and matching.

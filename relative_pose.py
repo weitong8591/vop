@@ -73,5 +73,6 @@ for scene in scenes:
             doc.write(f"{scene} recall@{opt.k} {opt.radius} {opt.vote} {[pred_matches[key] for key in pred_matches.keys()][0]} " + " ".join(map(str, pose_results[:16])) + " \n")
             all += [pose_results[:16]]
             all_num_matches += [pred_matches[key] for key in pred_matches.keys()]
+
 with open(avg_results, "a") as doc:
     doc.write(f"{opt.dataset} recall@{opt.k} {opt.radius} {opt.vote} {np.mean(all_num_matches)} " + " ".join(map(str, np.vstack(all).mean(0))) + " \n")
