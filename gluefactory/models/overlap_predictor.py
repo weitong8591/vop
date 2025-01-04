@@ -4,13 +4,7 @@ import torch.nn.functional as F
 import torch.utils.checkpoint
 from einops import rearrange, repeat
 import numpy as np
-import torchvision
-from ..utils.patch_helper import PatchCollect
-
 from gluefactory.models.base_model import BaseModel
-
-from ..geometry.utils import is_inside
-
 from torch.nn.functional import cosine_similarity
 
 @torch.cuda.amp.custom_fwd(cast_inputs=torch.float32)
@@ -141,18 +135,12 @@ class OverlapPredictor(BaseModel):
         "num_heads": 4,
         "patch_size": 14,
         "flash": False,
-        "bce_loss": False,
-        "add_score_head": False,
-        "add_voting_head":True,
-        "add_cls_tokens": False,
-        "attentions": False,
-        "n": 2,
-        "dropout_prob": 0.
+        "dropout_prob": 0.,
+        "n": 2
     }
-    required_data_keys = []
+    required_data_keys = ["descriptors0", "descriptors1", "keypoints0", "keypoints1"]
 
     def _init(self, conf):
-        n = conf.n_layers
         self.keypoint_encoder = nn.Sequential(
             nn.Linear(2, 2 * conf.descriptor_dim),
             nn.LayerNorm(2 * conf.descriptor_dim),
@@ -165,32 +153,7 @@ class OverlapPredictor(BaseModel):
             nn.GELU(),
             nn.Linear(2 * conf.descriptor_dim, conf.descriptor_dim),
         )
-
         self.input_proj = nn.Linear(conf.input_dim, conf.descriptor_dim)
-
-        if conf.add_score_head or conf.add_cls_tokens:
-            self.score_head = torchvision.ops.MLP(
-                conf.input_dim, [conf.descriptor_dim, 1]
-            )
-
-        self.self_attn = nn.ModuleList(
-            [
-                Transformer(conf.descriptor_dim, conf.num_heads, conf.flash)
-                for _ in range(n)
-            ]
-        )
-
-        self.cross_attn = nn.ModuleList(
-            [
-                Transformer(conf.descriptor_dim, conf.num_heads, conf.flash)
-                for _ in range(n)
-            ]
-        )
-
-        self.logits = nn.Linear(conf.descriptor_dim, 1)
-
-        self.criterion = torch.nn.BCEWithLogitsLoss(reduction="none")
-        self.patch_helper = PatchCollect(patch_size=14, resize_shape = 224)
 
     def _forward(self, data):
         """
@@ -203,6 +166,8 @@ class OverlapPredictor(BaseModel):
                 patch-level/global embeddings
 
         """
+        pred = {}
+
         if "image_size0" in data.keys():
             image_size0 = data.get("image_size0")
             image_size1 = data.get("image_size1")
@@ -212,184 +177,37 @@ class OverlapPredictor(BaseModel):
 
         kpts0 = normalize_keypoints(data["keypoints0"], size=image_size0) # B, N, 2 = 64, 256, 3
         kpts1 = normalize_keypoints(data["keypoints1"], size=image_size1)
-        desc0, desc1 = data["descriptors0"], data["descriptors1"] # B, N, D = 64, 256, 1024, N is the number of local patches
-        # score over patch-level descriptors
-        if self.conf.add_score_head:
-            keypoint_logits0, keypoint_logits1 = self.score_head(
-                desc0
-            ), self.score_head(desc1)  # B, N, 1
-
-        if self.conf.add_cls_tokens:
-            cls_token0 = data["global_descriptor0"]
-            cls_token1 = data["global_descriptor1"]
-            desc0 = torch.concat((desc0, cls_token0[:, None, :]), dim=1)
-            desc1 = torch.concat((desc1, cls_token1[:, None, :]), dim=1) # B, 256+1, D
 
         # reduce the dim of the patch-level descriptors, B, N, D, eg, to 256
-        desc0, desc1 = self.input_proj(desc0), self.input_proj(desc1)
+        desc0, desc1 = self.input_proj(data["descriptors0"]), self.input_proj(data["descriptors1"])
 
-        if self.conf.add_cls_tokens:
-            desc0 = desc0 + torch.concat((torch.zeros_like(desc0[:, None, 1, :]), self.keypoint_encoder(kpts0)), dim=1)
-            desc1 = desc1 + torch.concat((torch.zeros_like(desc1[:, None, 1, :]), self.keypoint_encoder(kpts1)), dim=1)
-        else:
-            desc0 = desc0 + self.keypoint_encoder(kpts0)
-            desc1 = desc1 + self.keypoint_encoder(kpts1)
+        # DINOv2 patch tokens + encoded keypoints (patch centers)
+        pred["desc0"] = desc0 + self.keypoint_encoder(kpts0)
+        pred["desc1"] = desc1 + self.keypoint_encoder(kpts1)
 
-        # return the projected desc0 desc1 here to do the patch voting
-        embeddings = [desc0, desc1]
-
-        # attention layers
-        for i in range(self.conf.n_layers):
-            desc0, desc1 = self.self_attn[i](desc0), self.self_attn[i](desc1)
-            desc0, desc1 = self.cross_attn[i](desc0, desc1), self.cross_attn[i](
-                desc1, desc0
-            )
-
-        # attentions over each patch with the patches in image 2
-        if self.conf.attentions:
-            attentions = [desc0, desc1]
-
-        if self.conf.add_cls_tokens:
-            logits0, logits1 = self.logits(desc0[:, 1:, ]), self.logits(desc1[:, 1:, ])
-        else:
-            logits0, logits1 = self.logits(desc0), self.logits(desc1) # B, N, 1
-
-        # normalization
-        scores0 = torch.sigmoid(logits0).squeeze(-1)
-        scores1 = torch.sigmoid(logits1).squeeze(-1)
-
-        pred = {
-            "logits0": logits0.squeeze(-1),
-            "logits1": logits1.squeeze(-1),
-            "matching_scores0": scores0,
-            "matching_scores1": scores1,
-            "overlap0": scores0.mean(-1),
-            "overlap1": scores1.mean(-1),
-        }
-
-        if self.conf.add_score_head:
-            pred["keypoint_logits0"] = keypoint_logits0.squeeze(-1)
-            pred["keypoint_logits1"] = keypoint_logits1.squeeze(-1)
-            pred["keypoint_scores0"] = torch.sigmoid(keypoint_logits0).squeeze(-1)
-            pred["keypoint_scores1"] = torch.sigmoid(keypoint_logits1).squeeze(-1)
-
-        if self.conf.add_voting_head:
-            pred["desc0"] = embeddings[0]
-            pred["desc1"] = embeddings[1]
-        if self.conf.attentions:
-            pred["attention0"] = attentions[0]
-            pred["attention1"] = attentions[1]
+        if "gt_labels" in data.keys(): pred["gt_labels"] = data["gt_labels"].squeeze()
+        if "label_confs" in data.keys(): pred["label_confs"] = data["label_confs"].squeeze()
+        if "neg_labels" in data.keys(): pred["neg_labels"] = data["neg_labels"].squeeze()
 
         return pred
 
     def loss(self, pred, data):
-        if "depth0" not in data.keys():
-            depth0 = data['view0']['depth']
-            depth1 = data['view1']['depth']
-        else:
-            depth0 = data["depth0"]
-            depth1 = data["depth1"]
-
-        pred["gt_valid0"] = is_inside(pred["keypoints0"], data["image_size0"]).float()
-        pred["gt_valid1"] = is_inside(pred["keypoints1"], data["image_size1"]).float()
-
         losses = {}
         losses["total"] = 0
+        contrastive_results = self.contrastive_loss_patches(pred)
+        for key in contrastive_results.keys():
+            losses[key] = contrastive_results[key]
 
-        if self.conf.add_voting_head:
-            contrastive_results = self.contrastive_loss_patches(pred["desc0"], pred["desc1"], data["gt_labels"].squeeze(), data["label_confs"].squeeze())
+        losses["total"] += losses["local_neg"]
+        losses["total"] += losses["local_pos"]
 
-            if self.conf.add_cls_tokens:
-                losses["global_neg"], losses["global_pos"] = contrastive_results["global_neg"], contrastive_results["global_pos"]
-                pred["global_neg_sim"], pred["global_pos_sim"] = contrastive_results["global_neg_sim"], contrastive_results["global_pos_sim"]
-                losses["total"] += losses["global_neg"]
-                losses["total"] += losses["global_pos"]
-
-            losses["local_neg"], losses["local_pos"] = contrastive_results["local_neg"], contrastive_results["local_pos"]
-            pred["local_neg_sim"], pred["local_pos_sim"] = contrastive_results["local_neg_sim"], contrastive_results["local_pos_sim"]
-            losses["total"] += losses["local_neg"]
-            losses["total"] += losses["local_pos"]
-
-        if self.conf.bce_loss:
-            l0 = self.criterion(pred["logits0"], data["gt_visible0"].squeeze().float())
-            l1 = self.criterion(pred["logits1"], data["gt_visible1"].squeeze().float())
-            losses["bce"] = masked_mean(l0, pred["gt_valid0"]) + masked_mean(
-            l1, pred["gt_valid1"]
-        )
-            losses["total"] += losses["bce"]
-
-        if self.conf.add_score_head:
-            pred["has_depth0"] = F.max_pool2d((depth0 > 0).float(), 14).flatten(
-                -2
-            )
-            pred["has_depth1"] = F.max_pool2d((depth1 > 0).float(), 14).flatten(
-                -2
-            )
-            kpl0 = self.criterion(pred["keypoint_logits0"], pred["has_depth0"].float())
-            kpl1 = self.criterion(pred["keypoint_logits1"], pred["has_depth1"].float())
-
-            losses["keypoint_loss"] = masked_mean(
-                kpl0, pred["gt_valid0"]
-            ) + masked_mean(kpl1, pred["gt_valid1"])
-            losses["total"] += losses["keypoint_loss"]
-
-        if self.conf.attentions:
-            attention_losses = self.contrastive_loss_attentions(pred["attention0"], pred["attention1"], data["gt_labels"].squeeze(), data["label_confs"].squeeze())
-            if self.conf.add_cls_tokens:
-                losses["attention_global_neg"], losses["attention_global_pos"] = attention_losses["global_neg"], attention_losses["global_pos"]
-                pred["attention_global_neg_sim"], pred["attention_global_pos_sim"] = attention_losses["global_neg_sim"], attention_losses["global_pos_sim"]
-                losses["total"] += losses["attention_global_neg"]
-                losses["total"] += losses["attention_global_pos"]
-
-            losses["attention_local_neg"] = attention_losses["local_neg"]
-            losses["attention_local_pos"] = attention_losses["local_pos"]
-            pred["attention_local_neg_sim"], pred["attention_local_pos_sim"] = attention_losses["local_neg_sim"], attention_losses["local_pos_sim"]
-
-            losses["total"] += losses["attention_local_neg"]
-            losses["total"] += losses["attention_local_pos"]
-
-        return losses, self.metrics(pred, data)
+        return losses, self.metrics(losses, data)
 
     def metrics(self, pred, data):
 
-        if self.conf.add_voting_head:
+        return {'local_neg_sim': pred["local_neg_sim"], 'local_pos_sim': pred["local_pos_sim"]}
 
-            if self.conf.add_cls_tokens:
-                if self.conf.attentions:
-                    return {
-                    'global_neg_sim': pred["global_neg_sim"],
-                    'global_pos_sim': pred["global_pos_sim"],
-                    'local_neg_sim': pred["local_neg_sim"],
-                    'local_pos_sim': pred["local_pos_sim"],
-                    "attention_global_neg_sim": pred["attention_global_neg_sim"],
-                    "attention_global_pos_sim": pred["attention_global_pos_sim"],
-                    "attention_local_neg_sim" : pred["attention_local_neg_sim"],
-                    "attention_local_pos_sim": pred["attention_local_pos_sim"],
-                    }
-                else:
-                    return {
-                    'global_neg_sim': pred["global_neg_sim"],
-                    'global_pos_sim': pred["global_pos_sim"],
-                    'local_neg_sim': pred["local_neg_sim"],
-                    'local_pos_sim': pred["local_pos_sim"],
-                    }
-            else:
-                if self.conf.attentions:
-                    return {
-                    'local_neg_sim': pred["local_neg_sim"],
-                    'local_pos_sim': pred["local_pos_sim"],
-                    "attention_local_neg_sim" : pred["attention_local_neg_sim"],
-                    "attention_local_pos_sim": pred["attention_local_pos_sim"]
-                }
-                else:
-                    return {
-                        'local_neg_sim': pred["local_neg_sim"],
-                        'local_pos_sim': pred["local_pos_sim"]
-                    }
-        else:
-            return {}
-
-    def contrastive_loss_patches(self, embed0, embed1, gt_labels, label_confs, margin=1, cos=True, conf=False):
+    def contrastive_loss_patches(self, pred, margin=1, cos=True, conf=False):
         """
             contrastive loss on N patches pairs on each image pair
             embed1, embed2 in a shape (B, N, D)
@@ -397,89 +215,32 @@ class OverlapPredictor(BaseModel):
             label_confs: how many correspondences in the matched patches, confidence of the labels
             cls_token1, cls_token1: cls tokens in shape (B, D)
         """
-        if self.conf.add_cls_tokens:
-            # class difference, global, on B image pairs
-            global_label_confs = gt_labels.view(gt_labels.shape[0], -1).sum(-1) # global negative image pairs will have global labels=0, indicates no overlaps at all in this pair.
-            global_labels = [global_label_confs > 0][0].to(torch.int16)
-            global_cos_sim = cosine_similarity(F.normalize(embed0[:, 0, :], dim=1), F.normalize(embed1[:, 0, :], dim=1), dim=1)
-            global_neg, global_pos, global_neg_sim, global_pos_sim = self.contrastive_loss(global_cos_sim, global_labels, global_label_confs, margin, conf, global_loss=True)
 
         # patch difference, local, on B*256 patches, normalize the descriptors for each patch
-        x0_normalized = F.normalize(embed0[:, 1:, ], dim=2) if self.conf.add_cls_tokens else torch.nn.functional.normalize(embed0, dim=2) # B, 256, 256
-        x1_normalized = F.normalize(embed1[:, 1:, ], dim=2) if self.conf.add_cls_tokens else torch.nn.functional.normalize(embed1, dim=2)
+        x0_normalized = torch.nn.functional.normalize(pred['desc0'], dim=2) # B, 256, 256
+        x1_normalized = torch.nn.functional.normalize(pred['desc1'], dim=2)
         # distances between each patch in each image pair, (B, N, N), [-1, 1]
         local_cos_sim = cosine_similarity(x0_normalized.unsqueeze(2), x1_normalized.unsqueeze(1), dim=3) if cos==True else torch.nn.PairwiseDistance()(x0_normalized.unsqueeze(1), x1_normalized.unsqueeze(2))
-        # negative + positive
-        local_neg, local_pos, local_neg_sim, local_pos_sim = self.contrastive_loss(local_cos_sim, gt_labels, label_confs, margin, conf)
+        local_neg, local_pos, local_neg_sim, local_pos_sim = self.contrastive_loss(local_cos_sim, pred["gt_labels"], pred["neg_labels"], pred["label_confs"], margin, conf)
 
-        if self.conf.add_cls_tokens:
-            return {
-                "global_neg": global_neg,
-                "global_pos": global_pos,
-                "local_neg": local_neg,
-                "local_pos": local_pos,
-                'global_neg_sim':global_neg_sim,
-                'global_pos_sim':global_pos_sim,
-                'local_neg_sim':local_neg_sim,
-                'local_pos_sim':local_pos_sim
+        return {
+            "local_neg": local_neg,
+            "local_pos": local_pos,
+            'local_neg_sim':local_neg_sim,
+            'local_pos_sim':local_pos_sim,
             }
-        else:
-            return {
-                "local_neg": local_neg,
-                "local_pos": local_pos,
-                'local_neg_sim':local_neg_sim,
-                'local_pos_sim':local_pos_sim,
-                }
 
-    def contrastive_loss_attentions(self, attention0, attention1, gt_labels, label_confs):
-        if self.conf.add_cls_tokens:
-            global_label_confs = gt_labels.view(gt_labels.shape[0], -1).sum(-1) # global negative image pairs will have global labels=0, indicates no overlaps at all in this pair.
-            global_labels = [global_label_confs > 0][0].to(torch.int16)
-
-            global_attentions = ((F.normalize(attention0[:, 0, :], dim=1) + F.normalize(attention1[:, 0, :], dim=1))/2).sum(-1)
-            global_neg, global_pos, global_neg_sim, global_pos_sim = self.contrastive_loss(global_attentions, global_labels, global_label_confs, global_loss=True)
-
-            local_attentions = (F.normalize(attention0[:, 1:, :], dim=2) + F.normalize(attention1[:, 1:, :], dim=2))/2
-            local_neg, local_pos, local_neg_sim, local_pos_sim = self.contrastive_loss(local_attentions, gt_labels, label_confs)
-        else:
-            local_attentions = (F.normalize(attention0, dim=2) + F.normalize(attention1, dim=2))/2
-            local_neg, local_pos, local_neg_sim, local_pos_sim = self.contrastive_loss(local_attentions, gt_labels, label_confs)
-
-        if self.conf.add_cls_tokens:
-            return {
-                    "global_neg": global_neg,
-                    "global_pos": global_pos,
-                    "local_neg": local_neg,
-                    "local_pos": local_pos,
-                    'global_neg_sim':global_neg_sim,
-                    'global_pos_sim':global_pos_sim,
-                    'local_neg_sim':local_neg_sim,
-                    'local_pos_sim':local_pos_sim}
-        else:
-            return {
-                    "local_neg": local_neg,
-                    "local_pos": local_pos,
-                    'local_neg_sim':local_neg_sim,
-                    'local_pos_sim':local_pos_sim}
-
-
-    def contrastive_loss(self, similarities, gt_labels, label_confs=None, margin=1, conf=False, global_loss=False):
+    def contrastive_loss(self, similarities, gt_labels, neg_labels, label_confs=None, margin=1, conf=False):
         B = similarities.shape[0]
         # losses
-        negative_loss = ((1 - gt_labels) * torch.pow(similarities, self.conf.n))
+        negative_loss = (neg_labels * torch.pow(similarities, self.conf.n))
         positive_loss = gt_labels * torch.pow(torch.clamp(margin - similarities, min=0.0), 2) * label_confs if conf \
-                else (gt_labels) * torch.pow(torch.clamp(margin - similarities, min=0.0), 2)
+                else gt_labels * torch.pow(torch.clamp(margin - similarities, min=0.0), 2)
         # similarities
-        neg_sim = ((1-gt_labels) * similarities)
+        neg_sim = (neg_labels * similarities)
         pos_sim = (gt_labels * similarities)
 
-        if global_loss:
-            return (negative_loss.sum()/(1-gt_labels).sum()).repeat(B),\
-                    (positive_loss.sum()/gt_labels.sum()).repeat(B),\
-                    (neg_sim.view(B, -1).sum()/(1-gt_labels).sum()).repeat(B), \
-                    (pos_sim.view(B, -1).sum()/(gt_labels).sum()).repeat(B)
-        else:
-            return negative_loss.view(B, -1).sum(-1)/((1-gt_labels).sum(-1).sum(-1)+1e-4), \
-                    positive_loss.view(B, -1).sum(-1)/(gt_labels.sum(-1).sum(-1)+1e-4), \
-                    neg_sim.view(B, -1).sum(-1)/((1-gt_labels).sum(-1).sum(-1)+1e-4), \
-                    pos_sim.view(B, -1).sum(-1)/(gt_labels.sum(-1).sum(-1)+1e-4)
+        return negative_loss.view(B, -1).sum(-1)/(neg_labels.sum((-1, -2))+1e-4), \
+                positive_loss.view(B, -1).sum(-1)/(gt_labels.sum((-1, -2))+1e-4), \
+                neg_sim.view(B, -1).sum(-1)/(neg_labels.sum((-1, -2))+1e-4), \
+                pos_sim.view(B, -1).sum(-1)/(gt_labels.sum((-1, -2))+1e-4)

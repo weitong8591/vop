@@ -2,25 +2,20 @@
 import os
 import h5py
 import torch
+import numpy as np
 from tqdm import tqdm
 from pathlib import Path
-import numpy as np
-import gluefactory
-
+from evaluate_utils import read_cameras
 from lightglue.utils import load_image
 from gluefactory.datasets.utils import scale_intrinsics
 from gluefactory.datasets.eth3d import qvec2rotmat
 from gluefactory.datasets.utils import scale_intrinsics
-from evaluate_utils import read_cameras
 
 
-def dump(opt):
+def dump(opt, model):
     scenes = os.listdir(opt.dataset_dir)
-    overlap_features = Path(opt.dump_dir)/ 'eth3d/overlap_feats.h5'
-    Path(opt.dump_dir).mkdir(exist_ok=True)
-    (Path(opt.dump_dir) / 'eth3d').mkdir(exist_ok=True)
-    modelconf = {}
-    model = gluefactory.load_experiment(opt.model, conf=modelconf).cuda().eval()
+    overlap_features = Path(opt.dump_dir) / 'eth3d' / 'overlap_feats.h5'
+    (Path(opt.dump_dir) / 'eth3d').mkdir(exist_ok=True, parents=True)
 
     if not os.path.exists(overlap_features) or opt.overwrite:
         with h5py.File(str(overlap_features), 'w') as hfile:

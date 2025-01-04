@@ -21,7 +21,6 @@ from ..visualization.viz2d import plot_heatmaps, plot_image_grid
 from .base_dataset import BaseDataset
 from .utils import rotate_intrinsics, rotate_pose_inplane, scale_intrinsics
 from ..geometry.depth import dense_warp_consistency, dense_patch_matching
-from ..geometry.utils import is_inside
 from ..utils.patch_helper import PatchCollect
 import torch.nn.functional as F
 from .augmentations import augmentations
@@ -291,7 +290,7 @@ class _PairDataset(torch.utils.data.Dataset):
             img = torch.zeros(
                 [3 - 2 * int(self.conf.grayscale), size[0], size[1]]
             ).float()
-            
+
         if self.conf.aug:
             img = self.photo_augment(img.permute(1, -1, 0), return_tensor=True)
 
@@ -383,13 +382,13 @@ class _PairDataset(torch.utils.data.Dataset):
             data["T_1to0"] = data0["T_w2cam"] @ data1["T_w2cam"].inv()
             data["overlap_0to1"] = overlap
             data["name"] = f"{scene}/{data0['name']}_{data1['name']}"
-            
+
             data["depth0"] = data["view0"].get("depth")
             data["depth1"] = data["view1"].get("depth")
-           
+
             data["camera0"] = data['view0'].get("camera")
             data["camera1"] = data['view1'].get("camera")
-            
+
             data["image_size0"] = data['view0'].get("image_size")
             data["image_size1"] = data['view1'].get("image_size")
 
@@ -410,19 +409,19 @@ class _PairDataset(torch.utils.data.Dataset):
             # inl0: 64, 224, 224
             data["gt_visible0"] = F.max_pool2d(inl0.float(), 14).flatten(-2) # 64, 16, 16 -> 64, 256
             data["gt_visible1"] = F.max_pool2d(inl1.float(), 14).flatten(-2)
-            # visable patches in image 0 and 1
+            # visible patches in image 0 and 1
             gt_vis_image0 = data["gt_visible0"][0].nonzero().squeeze()
             gt_vis_image1 = data["gt_visible1"][0].nonzero().squeeze()
             # for positive pairs
             if (min(gt_vis_image0.sum(), gt_vis_image1.sum())>0 and overlap>0):
                 data["gt_labels"], data["label_confs"] = dense_patch_matching(
-                    kpi_i, kpj_i, inl0, self.patch_helper, 
+                    kpi_i, kpj_i, inl0, self.patch_helper,
                     gt_vis_image0, gt_vis_image1,
                     self.conf["one_to_one"]
                     ) # B, 256, 256
                 gt_labels1, _ = dense_patch_matching(
-                    kpi_j, kpj_j, inl1, self.patch_helper, 
-                    gt_vis_image0, gt_vis_image1, 
+                    kpi_j, kpj_j, inl1, self.patch_helper,
+                    gt_vis_image0, gt_vis_image1,
                     self.conf["one_to_one"]
                     ) # B, 256, 256
                 # check the labels in both directions
@@ -434,12 +433,17 @@ class _PairDataset(torch.utils.data.Dataset):
                         data["label_confs"][0][l[0], l[1]] = 0
             else:
                 data["gt_labels"] = torch.zeros(data["gt_visible0"].shape[0], data["gt_visible0"].shape[1], data["gt_visible0"].shape[1])
-                data["label_confs"] = torch.zeros_like(data["gt_labels"]) 
+                data["label_confs"] = torch.zeros_like(data["gt_labels"])
+
             if self.photo_augment.conf['name'] == 'flip': # flip the labels
                 real_inx = 16* (np.arange(16**2) //16) + (15-np.arange(16**2)%16)
                 data["gt_labels"][0]= data["gt_labels"][0][real_inx][:, real_inx]
                 data["label_confs"][0]= data["label_confs"][0][real_inx][:, real_inx]
 
+            data["neg_labels"] = torch.zeros_like(data["gt_labels"])
+            neg_index = torch.sort((1 - data["gt_labels"][0]).nonzero(), dim=1).values
+            unique_neg_index = torch.unique(neg_index, dim=0)
+            data["neg_labels"][0][unique_neg_index[:, 0], unique_neg_index[:, 1]] = 1.
         else:
             assert self.conf.views == 1
             scene, idx0 = self.items[idx]

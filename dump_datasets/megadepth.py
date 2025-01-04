@@ -4,18 +4,14 @@ import torch
 import numpy as np
 from tqdm import tqdm
 from pathlib import Path
-
-import gluefactory
 from lightglue.utils import load_image
 from gluefactory.datasets.utils import scale_intrinsics
 from gluefactory.utils.image import ImagePreprocessor
 
 torch.set_grad_enabled(False)
 
-def dump(opt):
+def dump(opt, model):
     opt.dataset_dir = Path(opt.dataset_dir)
-    modelconf = {}
-    model = gluefactory.load_experiment(opt.model, conf=modelconf).cuda().eval()
 
     def get_imagedata(name, suffix):
         idx = list(scene_info["image_paths"]).index(name)
@@ -36,9 +32,8 @@ def dump(opt):
             'T_w2cam'+suffix: torch.tensor(scene_info['poses'][idx]).float()
         }
 
-    overlap_features = Path(opt.dump_dir)/ 'megadepth' / 'overlap_feats.h5'
-    Path(opt.dump_dir).mkdir(exist_ok=True)
-    (Path(opt.dump_dir) / 'megadepth').mkdir(exist_ok=True)
+    overlap_features = Path(opt.dump_dir) / 'megadepth' / 'overlap_feats.h5'
+    (Path(opt.dump_dir) / 'megadepth').mkdir(exist_ok=True, parents=True)
 
     if not os.path.exists(overlap_features) or opt.overwrite:
         with h5py.File(str(overlap_features), 'w') as hfile:
@@ -59,4 +54,4 @@ def dump(opt):
                     for key, v in imdata.items():
                         group.create_dataset(key, data=v.numpy())
                     group.create_dataset('image_size', data=[w, h])
-            print(f"finished." )
+            print(f"Finished." )

@@ -1,5 +1,5 @@
-"""
-Base class for dataset.
+"""Base class for dataset.
+
 See mnist.py for an example of dataset.
 """
 
@@ -10,7 +10,7 @@ from abc import ABCMeta, abstractmethod
 import omegaconf
 import torch
 from omegaconf import OmegaConf
-from torch.utils.data import DataLoader, Sampler, get_worker_info
+from torch.utils.data import DataLoader, Sampler, get_worker_info,ConcatDataset
 from torch.utils.data._utils.collate import (
     default_collate_err_msg_format,
     np_str_obj_array_pattern,
@@ -72,6 +72,85 @@ def collate(batch):
             return collate([torch.as_tensor(b) for b in batch])
         elif elem.shape == ():  # scalars
             return torch.as_tensor(batch)
+
+    elif isinstance(elem, float):
+        return torch.tensor(batch, dtype=torch.float64)
+    elif isinstance(elem, int):
+        return torch.tensor(batch)
+    elif isinstance(elem, string_classes):
+        return batch
+    elif isinstance(elem, collections.abc.Mapping):
+        return {key: collate([d[key] for d in batch]) for key in elem}
+    elif isinstance(elem, tuple) and hasattr(elem, "_fields"):  # namedtuple
+        return elem_type(*(collate(samples) for samples in zip(*batch)))
+    elif isinstance(elem, collections.abc.Sequence):
+        # check to make sure that the elements in batch have consistent size
+        it = iter(batch)
+        elem_size = len(next(it))
+        if not all(len(elem) == elem_size for elem in it):
+            raise RuntimeError("each element in list of batch should be of equal size")
+        transposed = zip(*batch)
+        return [collate(samples) for samples in transposed]
+    elif elem is None:
+        return elem
+    else:
+        # try to stack anyway in case the object implements stacking.
+        return torch.stack(batch, 0)
+
+def collate_mul(batch):
+    """Difference with PyTorch default_collate: it can stack of other objects."""
+    if not isinstance(batch, list):  # no batching
+        return batch
+    elem = batch[0]
+    elem_type = type(elem)
+    # for b_idx in range(len(batch)):
+    #     print(b_idx, batch[b_idx])
+    #     if not isinstance(batch[b_idx], torch.Tensor):
+    #         print("changed")
+    #         batch[b_idx] = torch.as_tensor(batch[b_idx])
+    processed_batch = []
+    for item in batch:
+        if isinstance(item, torch.Tensor):
+            processed_batch.append(item)
+        elif isinstance(item, dict):
+            # print(item)
+            # Optionally handle dict elements if they have tensors inside
+            tmp = []
+            for i in item:
+                # print(item[i])
+                if type(i).__module__ == "numpy":
+                    tmp += [torch.as_tensor(item[i])]
+                else:
+                    tmp += [item[i]]
+            processed_batch.append(tmp)#[torch.as_tensor(i) for i in item if type(i).__module__ == "numpy" else i ])
+        else:
+            processed_batch.append(torch.as_tensor(item))
+    return collate(processed_batch)#[torch.as_tensor(b) for b in batch if not isinstance(b, torch.Tensor)])
+    if isinstance(elem, torch.Tensor):
+        if torch.utils.data.get_worker_info() is not None:
+            # If we're in a background process, concatenate directly into a
+            # shared memory tensor to avoid an extra copy
+            print([isinstance(x, torch.Tensor) for x in batch])
+            numel = sum([x.numel() for x in batch])
+            import pdb; pdb.set_trace()
+            try:
+                storage = elem.untyped_storage()._new_shared(numel)  # noqa: F841
+            except AttributeError:
+                storage = elem.storage()._new_shared(numel)  # noqa: F841
+        return torch.stack(batch, dim=0)
+    elif (
+        elem_type.__module__ == "numpy"
+        and elem_type.__name__ != "str_"
+        and elem_type.__name__ != "string_"
+    ):
+        if elem_type.__name__ == "ndarray" or elem_type.__name__ == "memmap":
+            # array of string classes and object
+            if np_str_obj_array_pattern.search(elem.dtype.str) is not None:
+                raise TypeError(default_collate_err_msg_format.format(elem.dtype))
+            return collate([torch.as_tensor(b) for b in batch])
+        elif elem.shape == ():  # scalars
+            return torch.as_tensor(batch)
+
     elif isinstance(elem, float):
         return torch.tensor(batch, dtype=torch.float64)
     elif isinstance(elem, int):
@@ -181,12 +260,42 @@ class BaseDataset(metaclass=ABCMeta):
             drop_last=True if split == "train" else False,
         )
 
+    def get_data_loader_mul(self, split, data1, shuffle=None, pinned=False, distributed=False):
+        """Return a data loader for a given split."""
+        assert split in ["train", "val", "test"]
+        dataset = self.get_dataset(split)
+        dataset1 = data1.get_dataset(split)
+        concat_dataset = ConcatDataset([dataset, dataset1])
+        try:
+            batch_size = self.conf[split + "_batch_size"]
+        except omegaconf.MissingMandatoryValue:
+            batch_size = self.conf.batch_size
+        num_workers = self.conf.get("num_workers", batch_size)
+        if distributed:
+            shuffle = False
+            sampler = torch.utils.data.distributed.DistributedSampler(concat_dataset)
+        else:
+            sampler = None
+            if shuffle is None:
+                shuffle = split == "train" and self.conf.shuffle_training
+        return DataLoader(
+            concat_dataset,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            sampler=sampler,
+            pin_memory=pinned,
+            collate_fn=collate_mul,
+            num_workers=num_workers,
+            worker_init_fn=worker_init_fn,
+            prefetch_factor=self.conf.prefetch_factor,
+            drop_last=True if split == "train" else False,
+        )
+
     def get_overfit_loader(self, split):
         """Return an overfit data loader.
-        The training set is composed of a single duplicated batch, while
-        the validation and test sets contain a single copy of this same batch.
-        This is useful to debug a model and make sure that losses and metrics
-        correlate well.
+
+        The training set is composed of a single duplicated batch, while the validation and test sets contain a single
+        copy of this same batch. This is useful to debug a model and make sure that losses and metrics correlate well.
         """
         assert split in ["train", "val", "test"]
         dataset = self.get_dataset("train")
@@ -203,4 +312,29 @@ class BaseDataset(metaclass=ABCMeta):
             sampler=sampler,
             worker_init_fn=worker_init_fn,
             collate_fn=collate,
+        )
+    def get_overfit_loader_mul(self, split, data1):
+        """Return an overfit data loader.
+
+        The training set is composed of a single duplicated batch, while the validation and test sets contain a single
+        copy of this same batch. This is useful to debug a model and make sure that losses and metrics correlate well.
+        """
+        assert split in ["train", "val", "test"]
+        dataset = self.get_dataset("train")
+        dataset1 = data1.get_dataset("train")
+        concat_dataset = ConcatDataset([dataset, dataset1])
+
+        sampler = LoopSampler(
+            self.conf.batch_size,
+            len(dataset) if split == "train" else self.conf.batch_size,
+        )
+        num_workers = self.conf.get("num_workers", self.conf.batch_size)
+        return DataLoader(
+            concat_dataset,
+            batch_size=self.conf.batch_size,
+            pin_memory=True,
+            num_workers=num_workers,
+            sampler=sampler,
+            worker_init_fn=worker_init_fn,
+            collate_fn=collate_mul,
         )

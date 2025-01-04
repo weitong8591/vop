@@ -10,13 +10,10 @@ from pathlib import Path
 from args import *
 from utils import quaternion_to_rotation_matrix, camera_center_to_translation, Camera
 
-def dump(opt):
+def dump(opt, model):
 
     overlap_features = Path(opt.dump_dir)/ 'inloc' / 'overlap_feats.h5'
-    Path(opt.dump_dir).mkdir(exist_ok=True)
-    (Path(opt.dump_dir)/ opt.dataset).mkdir(exist_ok=True)
-    modelconf = {}
-    model = gluefactory.load_experiment(opt.model, conf=modelconf).cuda().eval()
+    (Path(opt.dump_dir)/ opt.dataset).mkdir(exist_ok=True, parents=True)
 
     # save intrinsic and extrinsic parameters for each image, from world to camera
     with h5py.File(str(overlap_features), 'w') as hfile:

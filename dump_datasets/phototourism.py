@@ -12,13 +12,11 @@ from collections import defaultdict
 from lightglue.utils import load_image
 from gluefactory.datasets.utils import scale_intrinsics
 
-def dump(opt):
+def dump(opt, model):
 
-    overlap_features = Path(opt.dump_dir)/ 'aachen' / 'overlap_feats.h5'
-    Path(opt.dump_dir).mkdir(exist_ok=True)
-    (Path(opt.dump_dir) / 'aachen').mkdir(exist_ok=True)
-    modelconf = {}
-    model = gluefactory.load_experiment(opt.model, conf=modelconf).cuda().eval()
+    overlap_features = Path(opt.dump_dir)/ 'phototourism' / 'overlap_feats.h5'
+    (Path(opt.dump_dir) / 'phototourism').mkdir(exist_ok=True, parents=True)
+
     if not os.path.exists(overlap_features) or opt.overwrite:
         with h5py.File(str(overlap_features), 'w') as hfile:
             for scene in os.listdir(opt.dataset_dir):
@@ -41,15 +39,15 @@ def dump(opt):
 
                 # Read intrinsics and extrinsics data
                 for image_path in tqdm(image_list):
-                    image_ = load_image(str(dataset_dir /image_path) + str('.jpg'), resize=opt.imsize)
+                    image_ = load_image(dataset_dir +'/' + image_path + str('.jpg'), resize=opt.imsize)
                     c, h, w = image_.shape
                     image = torch.zeros((3, opt.imsize, opt.imsize), device=opt.device, dtype=opt.dtype)
                     image[:, :h, :w] = image_
                     feats = model.extractor({'image': image[None]})
-                    group = hfile.create_group(image_path+str('.jpg'))
+                    group = hfile.create_group(scene+'/images/' +image_path+str('.jpg'))
                     for key in ['keypoints', 'descriptors', 'global_descriptor']:
                         group.create_dataset(key, data=feats[key][0].detach().cpu().numpy())
-                    ori_h, ori_w = load_image(str(dataset_dir /image_path) + str('.jpg')).shape[-2:]
+                    ori_h, ori_w = load_image(dataset_dir +'/' + image_path + str('.jpg')).shape[-2:]
                     original_image_size = np.array([ori_w, ori_h])
                     scales = opt.imsize/original_image_size
                     ori_K = Ks[image_path]

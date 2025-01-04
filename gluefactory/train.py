@@ -1,5 +1,4 @@
-"""
-A generic training script that works with any model and dataset.
+"""A generic training script that works with any model and dataset.
 
 Author: Paul-Edouard Sarlin (skydes)
 """
@@ -19,6 +18,7 @@ from omegaconf import OmegaConf
 from torch.cuda.amp import GradScaler, autocast
 # from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
+from torch.utils.data import DataLoader, ConcatDataset
 
 from . import __module_name__, logger
 from .datasets import get_dataset
@@ -103,6 +103,7 @@ def do_evaluation(model, loader, device, loss_fn, conf, pbar=True):
                     mask=pred[v["mask"]] if "mask" in v.keys() else None,
                 )
             del pred, data
+
         numbers = {**metrics, **{"loss/" + k: v for k, v in losses.items()}}
         for k, v in numbers.items():
             if k not in results:
@@ -226,8 +227,6 @@ def training(rank, conf, output_dir, args):
 
     OmegaConf.set_struct(conf, True)  # prevent access to unknown entries
     set_seed(conf.train.seed)
-    # if rank == 0:
-    #     writer = SummaryWriter(log_dir=str(output_dir))
 
     data_conf = copy.deepcopy(conf.data)
     if args.distributed:
@@ -429,7 +428,6 @@ def training(rank, conf, output_dir, args):
                 print(f"Detected NAN, skipping iteration {it}")
                 del pred, data, loss, losses
                 continue
-            # import pdb; pdb.set_trace()
             do_backward = loss.requires_grad
             if args.distributed:
                 do_backward = torch.tensor(do_backward).float().to(device)

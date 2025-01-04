@@ -6,7 +6,6 @@
 /venv/
 /data/
 /outputs/
-/outputs_local/
 __pycache__
 /logs/
 /configs/
@@ -15,3 +14,4 @@ dump_datasets/data_dirs.yaml
 *.batch
 logs/
 demo/
+out*

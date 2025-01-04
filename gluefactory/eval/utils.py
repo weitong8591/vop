@@ -230,7 +230,7 @@ def eval_poses(pose_results, auc_ths, key, unit="°"):
 def eval_poses_best(pose_results, auc_ths, key, unit="°", n=445):
     pose_aucs = {}
     best_th = -1
-    
+
     for th, results_i in pose_results.items():
         pose_aucs[th] = AUCMetric(auc_ths, results_i[key]).compute()
     mAAs = {k: np.mean(v) for k, v in pose_aucs.items()}
@@ -241,7 +241,7 @@ def eval_poses_best(pose_results, auc_ths, key, unit="°", n=445):
         print("AUC", pose_aucs)
         print("mAA", mAAs)
         print("best threshold =", best_th)
-    # import pdb;pdb.set_trace()
+
     summaries = {}
     pose_error = np.array(pose_results[best_th][key]).reshape(n, -1)
     best_pose_error = np.array([pose_error[i][index] for i, index in enumerate(best_indices)])
@@ -250,7 +250,7 @@ def eval_poses_best(pose_results, auc_ths, key, unit="°", n=445):
         summaries[f"{key}@{ath}{unit}"] = aucs[i]
     mAAs = {best_th: np.mean(aucs)}
     summaries[f"{key}_mAA"] = mAAs[best_th]
-    
+
     for k, v in pose_results[best_th].items():
         arr = np.array(v).reshape(n, -1)
         best_arr = np.array([arr[i][index] for i, index in enumerate(best_indices)])
@@ -266,10 +266,8 @@ def eval_poses_best(pose_results, auc_ths, key, unit="°", n=445):
 
 
 def get_tp_fp_pts(pred_matches, gt_matches, pred_scores):
-    """
-    Computes the True Positives (TP), False positives (FP), the score associated
-    to each match and the number of positives for a set of matches.
-    """
+    """Computes the True Positives (TP), False positives (FP), the score associated to each match and the number of
+    positives for a set of matches."""
     assert pred_matches.shape == pred_scores.shape
     ignore_mask = gt_matches != IGNORE_FEATURE
     pred_matches, gt_matches, pred_scores = (

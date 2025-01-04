@@ -13,14 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-
-import cv2
-import numpy as np
-from sklearn.decomposition import PCA
-import matplotlib.pyplot as plt
 import random
 import h5py
+import numpy as np
+from pathlib import Path
+from sklearn.decomposition import PCA
+import matplotlib.pyplot as plt
 
 def precalculate_patch_colors(descriptors):
     """Use PCA to reduce the dimensionality of the patch descriptors to 3 and normalize these for RGB color space.
@@ -354,3 +352,22 @@ def readh5(h5node):
         else:
             dict_from_file[_key] = h5node[_key][:]
     return dict_from_file
+
+
+def download_best(model_name):
+    import requests
+    print(f"No available checkpoint, start downloading...")
+    url = "https://cmp.felk.cvut.cz/~weitong/vop/checkpoint_best.tar"
+    local_file_path = f"outputs/training/{model_name}/checkpoint_best.tar"
+    output_dir = Path(f"outputs/training/{model_name}")
+    output_dir.mkdir(exist_ok=True, parents=True)
+
+    # Download the file
+    response = requests.get(url, stream=True)
+    if response.status_code == 200:
+        with open(local_file_path, 'wb') as file:
+            for chunk in response.iter_content(chunk_size=8192):
+                file.write(chunk)
+        print(f"Checkpoint downloaded successfully to {local_file_path}")
+    else:
+        print(f"Failed to download checkpoint. HTTP Status Code: {response.status_code}")

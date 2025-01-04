@@ -1,5 +1,4 @@
-"""
-A set of utilities to manage and load checkpoints of training experiments.
+"""A set of utilities to manage and load checkpoints of training experiments.
 
 Author: Paul-Edouard Sarlin (skydes)
 """
@@ -14,7 +13,7 @@ import torch
 from omegaconf import OmegaConf
 
 from ..models import get_model
-from ..settings import TRAINING_PATH
+from ..settings import TRAINING_PATH, TRAINING_PATH1
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +35,12 @@ def list_checkpoints(dir_):
 
 def get_last_checkpoint(exper, allow_interrupted=True):
     """Get the last saved checkpoint for a given experiment name."""
-    ckpts = list_checkpoints(Path(TRAINING_PATH, exper))
+    # ckpts = list_checkpoints(Path(TRAINING_PATH, exper))
+    try:
+        ckpts = list_checkpoints(Path(TRAINING_PATH, exper))
+    except:
+        ckpts = list_checkpoints(Path(TRAINING_PATH1, exper))
+
     if not allow_interrupted:
         ckpts = [(n, p) for (n, p) in ckpts if "_interrupted" not in p.name]
     assert len(ckpts) > 0
@@ -45,7 +49,10 @@ def get_last_checkpoint(exper, allow_interrupted=True):
 
 def get_best_checkpoint(exper):
     """Get the checkpoint with the best loss, for a given experiment name."""
-    p = Path(TRAINING_PATH, exper, "checkpoint_best.tar")
+    if os.path.exists(TRAINING_PATH/ exper/ "checkpoint_best.tar"):
+        p = Path(TRAINING_PATH, exper, "checkpoint_best.tar")
+    else:
+        p = Path(TRAINING_PATH1, exper, "checkpoint_best.tar")
     return p
 
 
@@ -107,8 +114,7 @@ def save_experiment(
     distributed=False,
     cp_name=None,
 ):
-    """Save the current model to a checkpoint
-    and return the best result so far."""
+    """Save the current model to a checkpoint and return the best result so far."""
     state = (model.module if distributed else model).state_dict()
     checkpoint = {
         "model": state,

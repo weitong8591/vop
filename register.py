@@ -1,15 +1,16 @@
-import torch
 import os
+import torch
 import numpy as np
+from args import *
+from utils import *
 import gluefactory
 from tqdm import tqdm
 from pathlib import Path
-from hloc import extract_features
 from evaluate_utils import *
-from args import *
 from omegaconf import OmegaConf
 from datasets import SampleDataset
 from torch.utils.data import DataLoader
+from torch.nn.functional import cosine_similarity
 
 opt = create_parser()
 
@@ -27,25 +28,32 @@ assert os.path.exists(overlap_features)
 
 scenes = ['Undistorted_SfM/0015/images','Undistorted_SfM/0022/images'] if opt.dataset == 'megadepth' else os.listdir(opt.dataset_dir)
 
-# use the trained model to encode the input embeddings
+if not os.path.exists(f"outputs/training/{opt.model}/checkpoint_best.tar"):
+    download_best(opt.model)
+
+# load the trained model to encode the input embeddings
 model = gluefactory.load_experiment(opt.model).to(opt.device).eval()
 
+all_scores = {}
 for scene in scenes:
     print("start testing on scene:", scene)
     if opt.dataset == 'eth3d': scene = f"{scene}/images/dslr_images_undistorted"
+    if opt.dataset == 'phototourism' or opt.dataset == 'imc2023': scene = f"{scene}/images/"
+    if not (opt.dataset_dir/scene).is_dir():
+        print(f"skipped scene:{scene}")
+        continue
 
     with h5py.File(str(overlap_features), 'r') as hfile:
         image_list = [f"{scene}/{f}" for f in hfile[scene].keys()]
 
     N = len(image_list)
-    if N < opt.pre_filter: opt.pre_filter //=  2
-
-    output_dir = Path('outputs') / opt.model / opt.dataset / scene
-    output_dir.mkdir(exist_ok=True, parents=True)
+    pre_filter = min(N, opt.pre_filter)
+    print(scene, N)
+    output_dir = Path(opt.output_dir) / opt.model / opt.dataset / scene
 
     if opt.cls:
         output_dir = output_dir / Path('cls_' + str(opt.pre_filter))
-        output_dir.mkdir(exist_ok=True)
+    output_dir.mkdir(exist_ok=True, parents=True)
 
     # load the dumped data, prepare for tests
     dataset = SampleDataset(overlap_features, image_list, opt.dataset)
@@ -54,7 +62,7 @@ for scene in scenes:
     all_des = []
     cls_tokens = []
     for d in tqdm(data_loader):
-        batch_data_cuda = {k: v.cuda() for k, v in d.items()}
+        batch_data_cuda = {k: v.to(opt.device) for k, v in d.items()}
         pred = model.matcher({**batch_data_cuda})
         if model.conf.matcher['add_cls_tokens']:
             des0 = pred['desc0'][:, 1:, :]
@@ -74,34 +82,59 @@ for scene in scenes:
         diagonal = torch.eye(N, N).bool().to(cls_scores.device)
         cls_scores.masked_fill_(diagonal, -torch.inf)
         np.savez(output_dir / Path("results_cls.npz"), **{'scores':cls_scores.cpu().numpy()})
+    else:
+        cls_scores = torch.from_numpy(np.load(output_dir / Path("results_cls.npz"))['scores'])
 
-    # Step 2: patch-level retrieval: radius search + votings
+    # Step 2: patch-level retrieval: radius search + weighted voting
     mask = np.load(output_dir / Path("results_cls.npz"))['scores']
-    filtered_indices = torch.topk(torch.from_numpy(mask), opt.pre_filter).indices
 
     for radius in [opt.radius]:
-        query_fun = Voting(opt.radius, num_patches=all_des.shape[1], weighted=opt.weighted)
+        if radius == -1:
+            # automatically choose a radius based on 100 random samples
+            torch.manual_seed(42)
+            random_indices = torch.randperm(all_des.size(0))[:100]
+            sample_des = all_des[random_indices]
+            similarities = cosine_similarity(sample_des.unsqueeze(2), sample_des.unsqueeze(1))
+            radius = round((torch.round(similarities.median() * 10) / 10).item(), 2)#torch.ceil(
+            with open(output_dir / "median_radius.txt",'w') as txtfile:
+                txtfile.write(f"{radius}\n")
+
+        query_fun = Voting(radius, num_patches=all_des.shape[1], weighted=opt.weighted)
         retrieved = query_fun.query_each(all_des)
-        np.savez(output_dir / Path(str(radius) + "_results_w.npz"), **retrieved)
-        print(f"successfully test {opt.model} on ds {opt.dataset} with radius of {radius}.")
+        np.savez(output_dir / Path(str(radius) + "_results.npz"), **retrieved)
+        print(f"successfully test {opt.model} on {scene} with radius of {radius}.")
 
-    # Step 3: save the retrieved image list
-    overlap_pairs = output_dir / Path('top' + str(opt.k) +'_overlap_pairs_w_auc.txt') if opt.weighted else output_dir / Path('top' + str(opt.k) +'_overlap_pairs_auc.txt')
+        # Step 3: save the retrieved image list
+        overlap_pairs = output_dir / Path(f"top{opt.k}_{radius}_overlap_pairs.txt")
+        scores = np.load(output_dir / Path(str(radius) + '_results.npz'))['scores']
 
-    scores = np.load(output_dir / Path(str(opt.radius) + '_results_w.npz'))['votings'][opt.vote] if opt.weighted else np.load(output_dir / Path(str(radius) + '_results.npz'))['votings'][opt.vote]
+        all_scores[scene] = {
+            'weighted': scores[1],
+            'scores': scores[0],
+            'pre_filter': pre_filter,
+            'cls_scores': cls_scores,
+            'overlap_pairs': overlap_pairs,
+            'image_list': image_list}
+
+# check if the tf-idf weights make sense for the dataset, not using it if half of the scenes with 0 weights (all db images containing a neighbor patch)
+score_key = 'weighted' if np.sum([(all_scores[scene]['weighted']==0).all() or opt.weighted==False for scene in all_scores.keys()]) < len(scenes) // 2 else 'scores'
+
+for scene in all_scores.keys():
+    scores = all_scores[scene][score_key]
+    k = min(opt.k, all_scores[scene]['pre_filter'])
+
     if opt.cls:
-        mask = np.load(output_dir / Path("results_cls.npz"))['scores']
         mask_ = torch.zeros_like(torch.from_numpy(scores))
-        mask_.scatter_(dim=1, index=torch.topk(torch.from_numpy(mask), opt.pre_filter).indices, src=torch.ones_like(mask_))
-        voting_topk = torch.topk(torch.from_numpy(scores) * mask_, opt.k)
+        mask_.scatter_(dim=1, index=torch.topk(all_scores[scene]['cls_scores'].to(mask_.device), all_scores[scene]['pre_filter']).indices, src=torch.ones_like(mask_))
+        voting_topk = torch.topk(torch.from_numpy(scores) * mask_, k)
     else:
-        voting_topk = torch.topk(torch.from_numpy(scores), opt.k)
+        voting_topk = torch.topk(torch.from_numpy(scores), k)
 
-    assert scores.shape[0] > opt.radius
+    assert scores.shape[0] > radius
 
-    if not os.path.exists(overlap_pairs) or opt.overwrite:
-        with open(overlap_pairs, "w") as doc:
-            for i, name in enumerate(image_list):
+    if not os.path.exists(all_scores[scene]['overlap_pairs']) or opt.overwrite:
+        with open(all_scores[scene]['overlap_pairs'], "w") as doc:
+            for i, name in enumerate(all_scores[scene]['image_list']):
                 for j in voting_topk.indices[i]:
-                    pairs_i = image_list[j]
+                    pairs_i = all_scores[scene]['image_list'][j]
                     doc.write(f"{name} {pairs_i}\n")
